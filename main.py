@@ -40,3 +40,44 @@ def get_cases():
 @app.get("/api/calendar")
 def get_calendar():
     return []
+
+# Database models ve gerçek endpoints eklenecek
+from typing import List, Optional
+from pydantic import BaseModel
+
+class Client(BaseModel):
+    id: Optional[int] = None
+    name: str
+    email: str
+    phone: str
+
+class Case(BaseModel):
+    id: Optional[int] = None
+    case_no: str
+    title: str
+    client_id: int
+    status: str = "active"
+
+# Geçici veri deposu (production'da PostgreSQL kullanılacak)
+clients_db = []
+cases_db = []
+
+@app.post("/api/clients")
+def create_client(client: Client):
+    client.id = len(clients_db) + 1
+    clients_db.append(client)
+    return client
+
+@app.get("/api/clients")
+def get_clients():
+    return clients_db
+
+@app.post("/api/cases")
+def create_case(case: Case):
+    case.id = len(cases_db) + 1
+    cases_db.append(case)
+    return case
+
+@app.get("/api/cases")
+def get_cases():
+    return cases_db
