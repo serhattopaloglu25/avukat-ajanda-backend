@@ -21,14 +21,25 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// Stats
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [users, clients, cases] = await Promise.all([
+      prisma.user.count(),
+      prisma.client.count(),
+      prisma.case.count()
+    ]);
+    res.json({ total_users: users, total_clients: clients, total_cases: cases });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // Register
 app.post('/auth/register', async (req, res) => {
   try {
     const { email, password, name } = req.body;
-    
-    const existing = await prisma.user.findUnique({
-      where: { email }
-    });
+    const existing = await prisma.user.findUnique({ where: { email } });
     
     if (existing) {
       return res.status(409).json({ error: 'Email already exists' });
@@ -50,8 +61,8 @@ app.post('/auth/register', async (req, res) => {
 app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-    
     const user = await prisma.user.findUnique({ where: { email } });
+    
     if (!user || !await bcrypt.compare(password, user.passwordHash)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
