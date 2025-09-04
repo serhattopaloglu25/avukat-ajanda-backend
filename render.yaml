@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: avukat-ajanda-api
+    runtime: docker
+    repo: https://github.com/serhattopaloglu25/avukat-ajanda-backend
+    region: frankfurt
+    plan: free
+    branch: main
+    envVars:
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health
