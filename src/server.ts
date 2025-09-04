@@ -5,6 +5,8 @@ import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import authRoutes from './routes/auth';
 import meRoutes from './routes/me';
+import clientRoutes from './routes/clients';
+import caseRoutes from './routes/cases';
 
 dotenv.config();
 
@@ -19,7 +21,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Health check
+// Health check with DB
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -29,6 +31,7 @@ app.get('/health', async (req, res) => {
   }
 });
 
+// Root
 app.get('/', (req, res) => {
   res.json({ 
     message: 'AvukatAjanda API',
@@ -37,24 +40,40 @@ app.get('/', (req, res) => {
   });
 });
 
+// Stats endpoint
+app.get('/api/stats', async (req, res) => {
+  try {
+    const [users, clients, cases, activeCases] = await Promise.all([
+      prisma.user.count(),
+      prisma.client.count(),
+      prisma.case.count(),
+      prisma.case.count({ where: { status: 'active' } })
+    ]);
+    
+    res.json({
+      total_users: users,
+      total_clients: clients,
+      total_cases: cases,
+      active_cases: activeCases
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
 // Mount routes
 app.use('/auth', authRoutes);
 app.use('/me', meRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/cases', caseRoutes);
 
 const server = app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received, shutting down');
   server.close(() => {
     prisma.$disconnect();
   });
 });
-
-export default app;
-
-import clientRoutes from './routes/clients';
-import caseRoutes from './routes/cases';
-
-app.use('/api/clients', clientRoutes);
-app.use('/api/cases', caseRoutes);
