@@ -1,9 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import os
-import uvicorn
 
-app = FastAPI(title="AvukatAjanda API")
+app = FastAPI(title="AvukatAjanda API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -41,7 +40,3 @@ def get_cases():
 @app.get("/api/calendar")
 def get_calendar():
     return []
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
