@@ -52,3 +52,9 @@ process.on('SIGTERM', () => {
 });
 
 export default app;
+
+import clientRoutes from './routes/clients';
+import caseRoutes from './routes/cases';
+
+app.use('/api/clients', clientRoutes);
+app.use('/api/cases', caseRoutes);
