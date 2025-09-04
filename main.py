@@ -1,6 +1,15 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from typing import List, Optional
+from pydantic import BaseModel
 import os
+
+# Database import
+from database import get_db, ClientDB, CaseDB, engine, Base
+
+# Create tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="AvukatAjanda API", version="1.0.0")
 
@@ -12,72 +21,69 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Pydantic models
+class Client(BaseModel):
+    name: str
+    email: str
+    phone: str
+
+class ClientResponse(Client):
+    id: int
+    
+class Case(BaseModel):
+    case_no: str
+    title: str
+    client_id: int
+    status: str = "active"
+
+class CaseResponse(Case):
+    id: int
+
 @app.get("/")
 def read_root():
-    return {"message": "AvukatAjanda API", "status": "active"}
+    return {"message": "AvukatAjanda API", "status": "active", "database": "connected"}
 
 @app.get("/health")
 def health_check():
     return {"status": "healthy"}
 
 @app.get("/api/stats")
-def get_stats():
+def get_stats(db: Session = Depends(get_db)):
+    total_clients = db.query(ClientDB).count()
+    total_cases = db.query(CaseDB).count()
+    active_cases = db.query(CaseDB).filter(CaseDB.status == "active").count()
+    
     return {
-        "total_cases": 12,
-        "active_cases": 8,
-        "total_clients": 45,
+        "total_cases": total_cases,
+        "active_cases": active_cases,
+        "total_clients": total_clients,
         "pending_invoices": 3
     }
 
-@app.get("/api/clients")
-def get_clients():
-    return []
+@app.post("/api/clients", response_model=ClientResponse)
+def create_client(client: Client, db: Session = Depends(get_db)):
+    db_client = ClientDB(**client.dict())
+    db.add(db_client)
+    db.commit()
+    db.refresh(db_client)
+    return db_client
 
-@app.get("/api/cases")
-def get_cases():
-    return []
+@app.get("/api/clients", response_model=List[ClientResponse])
+def get_clients(db: Session = Depends(get_db)):
+    return db.query(ClientDB).all()
+
+@app.post("/api/cases", response_model=CaseResponse)
+def create_case(case: Case, db: Session = Depends(get_db)):
+    db_case = CaseDB(**case.dict())
+    db.add(db_case)
+    db.commit()
+    db.refresh(db_case)
+    return db_case
+
+@app.get("/api/cases", response_model=List[CaseResponse])
+def get_cases(db: Session = Depends(get_db)):
+    return db.query(CaseDB).all()
 
 @app.get("/api/calendar")
 def get_calendar():
     return []
-
-# Database models ve gerçek endpoints eklenecek
-from typing import List, Optional
-from pydantic import BaseModel
-
-class Client(BaseModel):
-    id: Optional[int] = None
-    name: str
-    email: str
-    phone: str
-
-class Case(BaseModel):
-    id: Optional[int] = None
-    case_no: str
-    title: str
-    client_id: int
-    status: str = "active"
-
-# Geçici veri deposu (production'da PostgreSQL kullanılacak)
-clients_db = []
-cases_db = []
-
-@app.post("/api/clients")
-def create_client(client: Client):
-    client.id = len(clients_db) + 1
-    clients_db.append(client)
-    return client
-
-@app.get("/api/clients")
-def get_clients():
-    return clients_db
-
-@app.post("/api/cases")
-def create_case(case: Case):
-    case.id = len(cases_db) + 1
-    cases_db.append(case)
-    return case
-
-@app.get("/api/cases")
-def get_cases():
-    return cases_db
