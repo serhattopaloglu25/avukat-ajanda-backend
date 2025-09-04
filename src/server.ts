@@ -2,26 +2,33 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import authRoutes from './routes/auth';
+import meRoutes from './routes/me';
 
 dotenv.config();
 
 const app = express();
+const prisma = new PrismaClient();
 const PORT = process.env.PORT || 8000;
 
-// Middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',') || ['*'],
+  origin: process.env.CORS_ORIGIN?.split(',') || ['http://localhost:3000'],
   credentials: true
 }));
 app.use(express.json());
 
-// Health check - basit versiyon
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', message: 'API is running' });
+// Health check
+app.get('/health', async (req, res) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'healthy', database: 'connected' });
+  } catch (error) {
+    res.status(503).json({ status: 'unhealthy', database: 'disconnected' });
+  }
 });
 
-// Root endpoint
 app.get('/', (req, res) => {
   res.json({ 
     message: 'AvukatAjanda API',
@@ -30,38 +37,18 @@ app.get('/', (req, res) => {
   });
 });
 
-// Temporary auth endpoints (without DB)
-app.post('/auth/register', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
-  }
-  res.status(201).json({ 
-    message: 'Registration would work with DB',
-    user: { email } 
-  });
-});
+// Mount routes
+app.use('/auth', authRoutes);
+app.use('/me', meRoutes);
 
-app.post('/auth/login', (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email and password required' });
-  }
-  // Fake token for testing
-  res.json({ 
-    token: 'fake-jwt-token-for-testing',
-    user: { email }
-  });
-});
-
-// Start server
 const server = app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
   server.close(() => {
-    console.log('Server closed');
+    prisma.$disconnect();
   });
 });
+
+export default app;
