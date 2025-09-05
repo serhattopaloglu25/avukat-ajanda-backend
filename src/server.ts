@@ -3,10 +3,8 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { PrismaClient } from '@prisma/client';
-import authRoutes from './routes/auth';
-import meRoutes from './routes/me';
-import clientRoutes from './routes/clients';
-import caseRoutes from './routes/cases';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 dotenv.config();
 
@@ -21,7 +19,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// Health check with DB
+// Health check
 app.get('/health', async (req, res) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
@@ -31,75 +29,26 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Root
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'AvukatAjanda API',
-    version: '1.0.0',
-    status: 'active'
-  });
-});
-
-// Stats endpoint
+// Stats
 app.get('/api/stats', async (req, res) => {
   try {
-    const [users, clients, cases, activeCases] = await Promise.all([
+    const [users, clients, cases] = await Promise.all([
       prisma.user.count(),
       prisma.client.count(),
-      prisma.case.count(),
-      prisma.case.count({ where: { status: 'active' } })
+      prisma.case.count()
     ]);
-    
-    res.json({
-      total_users: users,
-      total_clients: clients,
-      total_cases: cases,
-      active_cases: activeCases
-    });
+    res.json({ total_users: users, total_clients: clients, total_cases: cases });
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
-// Mount routes
-app.use('/auth', authRoutes);
-app.use('/me', meRoutes);
-app.use('/api/clients', clientRoutes);
-app.use('/api/cases', caseRoutes);
-
 const server = app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
 
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received, shutting down');
+process.on('SIGTERM', () => {
   server.close(() => {
     prisma.$disconnect();
   });
 });
-
-// Add at the top after imports
-import * as Sentry from '@sentry/node';
-import { requestLogger, errorHandler } from './middleware/monitoring';
-import versionRoutes from './routes/version';
-
-// Initialize Sentry
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV || 'development',
-    integrations: [
-      new Sentry.Integrations.Http({ tracing: true }),
-    ],
-    tracesSampleRate: 1.0,
-  });
-}
-
-// Add after other middleware
-app.use(requestLogger);
-
-// Add version endpoint
-app.use('/version', versionRoutes);
-
-// Add error handler at the end
-app.use(errorHandler);
