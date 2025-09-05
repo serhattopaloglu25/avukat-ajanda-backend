@@ -46,3 +46,18 @@ model Case {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model File {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  name      String
+  mimeType  String
+  size      Int
+  clientId  Int?
+  client    Client?  @relation(fields: [clientId], references: [id])
+  caseId    Int?
+  case      Case?    @relation(fields: [caseId], references: [id])
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+}
