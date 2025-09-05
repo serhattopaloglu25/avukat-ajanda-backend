@@ -1,12 +1,27 @@
 services:
   - type: web
-    name: avukat-ajanda-api
+    name: avukat-ajanda-backend
     runtime: docker
-    repo: https://github.com/serhattopaloglu25/avukat-ajanda-backend
     region: frankfurt
     plan: free
     branch: main
-    envVars:
-      - key: PORT
-        value: 8000
+    autoDeploy: true
     healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://avukatajanda.com,https://www.avukatajanda.com,http://localhost:3000
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+
+databases:
+  - name: avukat-ajanda-db
+    region: frankfurt
+    plan: free
+    databaseName: avukat_ajanda
+    user: avukat_user
