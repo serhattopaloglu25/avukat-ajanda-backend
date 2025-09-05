@@ -61,3 +61,24 @@ model File {
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
 }
+
+model Invoice {
+  id            Int      @id @default(autoincrement())
+  number        String   @unique
+  clientId      Int
+  client        Client   @relation(fields: [clientId], references: [id])
+  issueDate     DateTime
+  dueDate       DateTime
+  items         Json
+  subtotal      Float
+  tax           Float
+  total         Float
+  currency      String   @default("TRY")
+  status        String   @default("draft") // draft, sent, paid, overdue
+  paymentUrl    String?
+  paymentStatus String?
+  userId        Int
+  user          User     @relation(fields: [userId], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
