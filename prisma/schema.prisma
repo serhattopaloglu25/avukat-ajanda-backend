@@ -82,3 +82,29 @@ model Invoice {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+
+model Organization {
+  id          Int          @id @default(autoincrement())
+  name        String
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  
+  memberships Membership[]
+  clients     Client[]
+  cases       Case[]
+  events      Event[]
+  invoices    Invoice[]
+  files       File[]
+}
+
+model Membership {
+  id       Int          @id @default(autoincrement())
+  userId   Int
+  user     User         @relation(fields: [userId], references: [id])
+  orgId    Int
+  org      Organization @relation(fields: [orgId], references: [id])
+  role     String       // admin, lawyer, assistant
+  joinedAt DateTime     @default(now())
+  
+  @@unique([userId, orgId])
+}
