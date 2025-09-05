@@ -77,3 +77,29 @@ process.on('SIGTERM', async () => {
     prisma.$disconnect();
   });
 });
+
+// Add at the top after imports
+import * as Sentry from '@sentry/node';
+import { requestLogger, errorHandler } from './middleware/monitoring';
+import versionRoutes from './routes/version';
+
+// Initialize Sentry
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    integrations: [
+      new Sentry.Integrations.Http({ tracing: true }),
+    ],
+    tracesSampleRate: 1.0,
+  });
+}
+
+// Add after other middleware
+app.use(requestLogger);
+
+// Add version endpoint
+app.use('/version', versionRoutes);
+
+// Add error handler at the end
+app.use(errorHandler);
