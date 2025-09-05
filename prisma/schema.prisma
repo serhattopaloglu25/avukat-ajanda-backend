@@ -16,13 +16,9 @@ model User {
   role         String   @default("client")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
-  clients    Client[]
-  cases      Case[]
-  File       File[]
-  Invoice    Invoice[]
-  Membership Membership[]
-  Event      Event[]
+  
+  clients      Client[]
+  cases        Case[]
 }
 
 model Client {
@@ -34,109 +30,19 @@ model Client {
   userId    Int
   user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
-
-  cases          Case[]
-  File           File[]
-  Invoice        Invoice[]
-  Organization   Organization? @relation(fields: [organizationId], references: [id])
-  organizationId Int?
-  Event          Event[]
+  
+  cases     Case[]
 }
 
 model Case {
-  id             Int           @id @default(autoincrement())
-  caseNo         String        @unique
-  title          String
-  status         String        @default("active")
-  clientId       Int
-  client         Client        @relation(fields: [clientId], references: [id])
-  userId         Int
-  user           User          @relation(fields: [userId], references: [id])
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  File           File[]
-  Organization   Organization? @relation(fields: [organizationId], references: [id])
-  organizationId Int?
-}
-
-model File {
-  id             Int           @id @default(autoincrement())
-  key            String        @unique
-  name           String
-  mimeType       String
-  size           Int
-  clientId       Int?
-  client         Client?       @relation(fields: [clientId], references: [id])
-  caseId         Int?
-  case           Case?         @relation(fields: [caseId], references: [id])
-  userId         Int
-  user           User          @relation(fields: [userId], references: [id])
-  createdAt      DateTime      @default(now())
-  Organization   Organization? @relation(fields: [organizationId], references: [id])
-  organizationId Int?
-}
-
-model Invoice {
-  id             Int           @id @default(autoincrement())
-  number         String        @unique
-  clientId       Int
-  client         Client        @relation(fields: [clientId], references: [id])
-  issueDate      DateTime
-  dueDate        DateTime
-  items          Json
-  subtotal       Float
-  tax            Float
-  total          Float
-  currency       String        @default("TRY")
-  status         String        @default("draft") // draft, sent, paid, overdue
-  paymentUrl     String?
-  paymentStatus  String?
-  userId         Int
-  user           User          @relation(fields: [userId], references: [id])
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  Organization   Organization? @relation(fields: [organizationId], references: [id])
-  organizationId Int?
-}
-
-model Organization {
   id        Int      @id @default(autoincrement())
-  name      String
+  caseNo    String   @unique
+  title     String
+  status    String   @default("active")
+  clientId  Int
+  client    Client   @relation(fields: [clientId], references: [id])
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  memberships Membership[]
-  clients     Client[]
-  cases       Case[]
-  //   events      Event[]
-  invoices    Invoice[]
-  files       File[]
-}
-
-model Membership {
-  id       Int          @id @default(autoincrement())
-  userId   Int
-  user     User         @relation(fields: [userId], references: [id])
-  orgId    Int
-  org      Organization @relation(fields: [orgId], references: [id])
-  role     String // admin, lawyer, assistant
-  joinedAt DateTime     @default(now())
-
-  @@unique([userId, orgId])
-}
-
-model Event {
-  id            Int      @id @default(autoincrement())
-  title         String
-  type          String
-  dateTime      DateTime
-  location      String?
-  notes         String?
-  clientId      Int?
-  client        Client?  @relation(fields: [clientId], references: [id])
-  userId        Int
-  user          User     @relation(fields: [userId], references: [id])
-  remindOffsets Int[]    @default([1440, 60, 15])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
 }
