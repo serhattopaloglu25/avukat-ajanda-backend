@@ -92,7 +92,7 @@ model Organization {
   memberships Membership[]
   clients     Client[]
   cases       Case[]
-  events      Event[]
+//   events      Event[]
   invoices    Invoice[]
   files       File[]
 }
@@ -107,4 +107,22 @@ model Membership {
   joinedAt DateTime     @default(now())
   
   @@unique([userId, orgId])
+}
+
+
+
+model Event {
+  id             Int      @id @default(autoincrement())
+  title          String
+  type           String
+  dateTime       DateTime
+  location       String?
+  notes          String?
+  clientId       Int?
+  client         Client?  @relation(fields: [clientId], references: [id])
+  userId         Int
+  user           User     @relation(fields: [userId], references: [id])
+  remindOffsets  Int[]    @default([1440, 60, 15])
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
