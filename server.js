@@ -100,3 +100,8 @@ app.get('/me', async (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server on port ${PORT}`);
 });
+
+// Add to server.js
+const eventRoutes = require('./dist/routes/events').default;
+app.use('/api/events', eventRoutes);
+
