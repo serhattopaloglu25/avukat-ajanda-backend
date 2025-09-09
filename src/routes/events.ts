@@ -2,9 +2,26 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { generateICS } from '../services/calendar';
 
 const router = Router();
 const prisma = new PrismaClient();
+
+// Export calendar
+router.get('/events/export.ics', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const startDate = req.query.start ? new Date(req.query.start as string) : undefined;
+    const endDate = req.query.end ? new Date(req.query.end as string) : undefined;
+    
+    const icsContent = await generateICS(req.orgId!, startDate, endDate);
+    
+    res.setHeader('Content-Type', 'text/calendar');
+    res.setHeader('Content-Disposition', 'attachment; filename="calendar.ics"');
+    res.send(icsContent);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to generate calendar' });
+  }
+});
 
 // Get events
 router.get('/events', requireAuth, async (req: AuthRequest, res) => {
@@ -12,9 +29,13 @@ router.get('/events', requireAuth, async (req: AuthRequest, res) => {
     const orgId = req.orgId;
     const start = req.query.start as string;
     const end = req.query.end as string;
+    const scope = req.query.scope as string;
     
     const where: any = { orgId };
-    if (start && end) {
+    
+    if (scope === 'upcoming') {
+      where.startAt = { gte: new Date() };
+    } else if (start && end) {
       where.startAt = {
         gte: new Date(start),
         lte: new Date(end),
@@ -25,6 +46,7 @@ router.get('/events', requireAuth, async (req: AuthRequest, res) => {
       where,
       include: { case: true },
       orderBy: { startAt: 'asc' },
+      take: scope === 'upcoming' ? 10 : undefined,
     });
 
     res.json(events);
@@ -66,8 +88,6 @@ router.post('/events', requireAuth, async (req: AuthRequest, res) => {
         action: 'create',
         resource: 'event',
         resourceId: event.id.toString(),
-        ip: req.ip,
-        ua: req.headers['user-agent'],
       },
     });
 
