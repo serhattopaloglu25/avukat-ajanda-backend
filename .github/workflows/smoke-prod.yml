@@ -1,0 +1,50 @@
+name: Smoke (Prod)
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'  # 6 saatte bir
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Health
+        run: |
+          curl -fsS https://avukat-ajanda-backend.onrender.com/health | jq .
+      - name: Register (random email)
+        run: |
+          EMAIL="smoke+${{ github.run_id }}@aa.com"
+          PASS="Test1234!"
+          echo "EMAIL=$EMAIL" >> $GITHUB_ENV
+          echo "PASS=$PASS" >> $GITHUB_ENV
+          curl -fsS -X POST https://avukat-ajanda-backend.onrender.com/auth/register \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\",\"name\":\"Smoke\"}" | jq .
+      - name: Login (expect real JWT)
+        run: |
+          TOK=$(curl -fsS -X POST https://avukat-ajanda-backend.onrender.com/auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$EMAIL\",\"password\":\"$PASS\"}" | jq -r .token)
+          echo "Token prefix: ${TOK:0:10}"
+          if [[ $(awk -F. '{print NF}' <<< "$TOK") -lt 3 ]]; then
+            echo "Token invalid (mock?)"; exit 1;
+          fi
+          echo "TOK=$TOK" >> $GITHUB_ENV
+      - name: Me
+        run: |
+          curl -fsS -H "Authorization: Bearer $TOK" \
+            https://avukat-ajanda-backend.onrender.com/me | jq .
+      - name: Stats
+        run: |
+          curl -fsS -H "Authorization: Bearer $TOK" \
+            https://avukat-ajanda-backend.onrender.com/api/stats | jq .
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Frontend pages
+        run: |
+          for p in / /login /dashboard /ozellikler /fiyatlandirma /iletisim ; do
+            echo "==> https://avukatajanda.com$p"
+            curl -I -s https://avukatajanda.com$p | head -n 5
+          done
