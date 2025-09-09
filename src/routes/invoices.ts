@@ -1,107 +1,90 @@
-import express from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
+import { requireAuth, AuthRequest } from '../middleware/auth';
+import { generateInvoicePDF } from '../services/pdf';
 
-const router = express.Router();
+const router = Router();
 const prisma = new PrismaClient();
 
-const authMiddleware = (req: any, res: any, next: any) => {
-  const token = req.headers.authorization?.substring(7);
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  
+// Get invoice PDF
+router.get('/invoices/:id/pdf', requireAuth, async (req: AuthRequest, res) => {
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || '') as any;
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// Generate invoice number
-const generateInvoiceNumber = () => {
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `INV-${year}${month}-${random}`;
-};
-
-// POST /api/invoices
-router.post('/', authMiddleware, async (req: any, res) => {
-  try {
-    const invoice = await prisma.invoice.create({
-      data: {
-        ...req.body,
-        number: generateInvoiceNumber(),
-        userId: req.user.userId,
-        issueDate: new Date(req.body.issueDate),
-        dueDate: new Date(req.body.dueDate)
-      }
-    });
-    res.status(201).json(invoice);
+    const id = parseInt(req.params.id);
+    const pdf = await generateInvoicePDF(id, req.orgId!);
+    
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="invoice-${id}.pdf"`);
+    res.send(pdf);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create invoice' });
+    res.status(500).json({ error: 'Failed to generate PDF' });
   }
 });
 
-// GET /api/invoices
-router.get('/', authMiddleware, async (req: any, res) => {
-  const { status, clientId, from, to } = req.query;
-  
-  const where: any = { userId: req.user.userId };
-  if (status) where.status = status;
-  if (clientId) where.clientId = parseInt(clientId);
-  if (from || to) {
-    where.issueDate = {};
-    if (from) where.issueDate.gte = new Date(from);
-    if (to) where.issueDate.lte = new Date(to);
+// Send invoice email
+router.post('/invoices/:id/send', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { email } = req.body;
+
+    // Generate PDF
+    const pdf = await generateInvoicePDF(id, req.orgId!);
+
+    // Send email with Resend
+    if (process.env.RESEND_API_KEY) {
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: process.env.INVOICE_FROM || 'fatura@avukatajanda.com',
+          to: email,
+          subject: `Fatura #${id}`,
+          html: '<p>Faturanız ekte bulunmaktadır.</p>',
+          attachments: [{
+            filename: `invoice-${id}.pdf`,
+            content: pdf.toString('base64'),
+          }],
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Email send failed');
+      }
+    }
+
+    await prisma.auditLog.create({
+      data: {
+        orgId: req.orgId,
+        userId: req.user.id,
+        action: 'send',
+        resource: 'invoice',
+        resourceId: id.toString(),
+        meta: { email },
+      },
+    });
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to send invoice' });
   }
-  
-  const invoices = await prisma.invoice.findMany({
-    where,
-    include: { client: true },
-    orderBy: { createdAt: 'desc' }
-  });
-  
-  res.json(invoices);
 });
 
-// GET /api/invoices/:id
-router.get('/:id', authMiddleware, async (req: any, res) => {
-  const invoice = await prisma.invoice.findFirst({
-    where: { 
-      id: parseInt(req.params.id),
-      userId: req.user.userId 
-    },
-    include: { client: true }
-  });
-  
-  if (!invoice) return res.status(404).json({ error: 'Invoice not found' });
-  res.json(invoice);
-});
+// List invoices
+router.get('/invoices', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const invoices = await prisma.invoice.findMany({
+      where: { orgId: req.orgId },
+      include: { client: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-// PUT /api/invoices/:id
-router.put('/:id', authMiddleware, async (req: any, res) => {
-  await prisma.invoice.updateMany({
-    where: { 
-      id: parseInt(req.params.id),
-      userId: req.user.userId 
-    },
-    data: req.body
-  });
-  res.json({ message: 'Invoice updated' });
-});
-
-// POST /api/invoices/:id/mark-paid
-router.post('/:id/mark-paid', authMiddleware, async (req: any, res) => {
-  await prisma.invoice.updateMany({
-    where: { 
-      id: parseInt(req.params.id),
-      userId: req.user.userId 
-    },
-    data: { status: 'paid' }
-  });
-  res.json({ message: 'Invoice marked as paid' });
+    res.json(invoices);
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch invoices' });
+  }
 });
 
 export default router;
