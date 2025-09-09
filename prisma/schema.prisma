@@ -1,6 +1,5 @@
 generator client {
-  provider      = "prisma-client-js"
-  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+  provider = "prisma-client-js"
 }
 
 datasource db {
@@ -8,41 +7,161 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Role {
+  owner
+  admin
+  lawyer
+  assistant
+}
+
 model User {
-  id           Int      @id @default(autoincrement())
-  email        String   @unique
-  passwordHash String
-  name         String?
-  role         String   @default("client")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  
-  clients      Client[]
-  cases        Case[]
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships             Membership[]
+  sessions                Session[]
+  auditLogs               AuditLog[]
+  invitesSent             Invite[]                 @relation("InvitedBy")
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
+  clientsCreated          Client[]                 @relation("ClientCreatedBy")
+  casesCreated            Case[]                   @relation("CaseCreatedBy")
+}
+
+model Organization {
+  id        Int      @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  clients     Client[]
+  cases       Case[]
+  auditLogs   AuditLog[]
+  invites     Invite[]
+}
+
+model Membership {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  orgId     Int
+  role      Role     @default(lawyer)
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User         @relation(fields: [userId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
 }
 
 model Client {
-  id        Int      @id @default(autoincrement())
-  name      String
-  email     String
-  phone     String
-  address   String?
-  userId    Int
-  user      User     @relation(fields: [userId], references: [id])
-  createdAt DateTime @default(now())
-  
+  id              Int      @id @default(autoincrement())
+  orgId           Int
+  name            String
+  email           String?
+  phone           String?
+  address         String?
+  notes           String?
+  createdByUserId Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  createdBy User         @relation("ClientCreatedBy", fields: [createdByUserId], references: [id])
   cases     Case[]
+
+  @@index([orgId])
 }
 
 model Case {
+  id              Int      @id @default(autoincrement())
+  orgId           Int
+  clientId        Int
+  title           String
+  caseNumber      String?
+  court           String?
+  status          String   @default("active")
+  description     String?
+  createdByUserId Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  client    Client       @relation(fields: [clientId], references: [id])
+  createdBy User         @relation("CaseCreatedBy", fields: [createdByUserId], references: [id])
+
+  @@index([orgId])
+  @@index([clientId])
+}
+
+model Session {
   id        Int      @id @default(autoincrement())
-  caseNo    String   @unique
-  title     String
-  status    String   @default("active")
-  clientId  Int
-  client    Client   @relation(fields: [clientId], references: [id])
   userId    Int
-  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  expiresAt DateTime
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id         Int      @id @default(autoincrement())
+  orgId      Int?
+  userId     Int?
+  action     String
+  resource   String
+  resourceId String?
+  ip         String?
+  ua         String?
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  user User?         @relation(fields: [userId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
+
+  @@index([orgId, createdAt])
+}
+
+model Invite {
+  id              Int       @id @default(autoincrement())
+  orgId           Int
+  email           String
+  role            Role      @default(lawyer)
+  tokenHash       String    @unique
+  invitedByUserId Int
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  org       Organization @relation(fields: [orgId], references: [id])
+  invitedBy User         @relation("InvitedBy", fields: [invitedByUserId], references: [id])
+
+  @@index([orgId, email])
+}
+
+model EmailVerificationToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model PasswordResetToken {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  tokenHash String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }
