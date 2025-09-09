@@ -14,34 +14,68 @@ enum Role {
   assistant
 }
 
+enum CaseStatus {
+  active
+  pending
+  closed
+  archived
+}
+
+enum EventType {
+  hearing
+  meeting
+  reminder
+  deadline
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  paid
+  overdue
+  cancelled
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
   password  String
   name      String?
+  phone     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  memberships             Membership[]
-  sessions                Session[]
-  auditLogs               AuditLog[]
-  invitesSent             Invite[]                 @relation("InvitedBy")
+  
+  memberships            Membership[]
+  sessions               Session[]
+  auditLogs              AuditLog[]
+  invitesSent            Invite[]              @relation("InvitedBy")
   emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens     PasswordResetToken[]
-  clientsCreated          Client[]                 @relation("ClientCreatedBy")
-  casesCreated            Case[]                   @relation("CaseCreatedBy")
+  passwordResetTokens    PasswordResetToken[]
+  clientsCreated         Client[]              @relation("ClientCreatedBy")
+  clientsUpdated         Client[]              @relation("ClientUpdatedBy")
+  casesCreated           Case[]                @relation("CaseCreatedBy")
+  casesUpdated           Case[]                @relation("CaseUpdatedBy")
+  eventsCreated          Event[]               @relation("EventCreatedBy")
+  filesUploaded          File[]
+  invoicesCreated        Invoice[]
 }
 
 model Organization {
   id        Int      @id @default(autoincrement())
   name      String
   slug      String   @unique
+  phone     String?
+  address   String?
+  taxNo     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  
   memberships Membership[]
   clients     Client[]
   cases       Case[]
+  events      Event[]
+  files       File[]
+  invoices    Invoice[]
   auditLogs   AuditLog[]
   invites     Invite[]
 }
@@ -54,11 +88,12 @@ model Membership {
   status    String   @default("active")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
+  
   user User         @relation(fields: [userId], references: [id])
   org  Organization @relation(fields: [orgId], references: [id])
-
+  
   @@unique([userId, orgId])
+  @@index([orgId])
 }
 
 model Client {
@@ -67,38 +102,117 @@ model Client {
   name            String
   email           String?
   phone           String?
+  tcNo            String?
   address         String?
   notes           String?
   createdByUserId Int
+  updatedByUserId Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-
+  
   org       Organization @relation(fields: [orgId], references: [id])
   createdBy User         @relation("ClientCreatedBy", fields: [createdByUserId], references: [id])
+  updatedBy User?        @relation("ClientUpdatedBy", fields: [updatedByUserId], references: [id])
   cases     Case[]
-
+  invoices  Invoice[]
+  
   @@index([orgId])
+  @@index([name])
 }
 
 model Case {
-  id              Int      @id @default(autoincrement())
+  id              Int        @id @default(autoincrement())
   orgId           Int
   clientId        Int
   title           String
   caseNumber      String?
   court           String?
-  status          String   @default("active")
+  judge           String?
+  status          CaseStatus @default(active)
   description     String?
+  nextHearing     DateTime?
   createdByUserId Int
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
+  updatedByUserId Int?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  
   org       Organization @relation(fields: [orgId], references: [id])
   client    Client       @relation(fields: [clientId], references: [id])
   createdBy User         @relation("CaseCreatedBy", fields: [createdByUserId], references: [id])
-
+  updatedBy User?        @relation("CaseUpdatedBy", fields: [updatedByUserId], references: [id])
+  events    Event[]
+  files     File[]
+  
   @@index([orgId])
   @@index([clientId])
+  @@index([status])
+}
+
+model Event {
+  id              Int       @id @default(autoincrement())
+  orgId           Int
+  caseId          Int?
+  type            EventType
+  title           String
+  description     String?
+  startAt         DateTime
+  endAt           DateTime?
+  location        String?
+  reminder        Boolean   @default(false)
+  createdByUserId Int
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  
+  org       Organization @relation(fields: [orgId], references: [id])
+  case      Case?        @relation(fields: [caseId], references: [id])
+  createdBy User         @relation("EventCreatedBy", fields: [createdByUserId], references: [id])
+  
+  @@index([orgId])
+  @@index([startAt])
+}
+
+model File {
+  id         Int      @id @default(autoincrement())
+  orgId      Int
+  caseId     Int?
+  name       String
+  key        String   @unique
+  mimeType   String
+  size       Int
+  uploadedBy Int
+  createdAt  DateTime @default(now())
+  
+  org        Organization @relation(fields: [orgId], references: [id])
+  case       Case?        @relation(fields: [caseId], references: [id])
+  uploader   User         @relation(fields: [uploadedBy], references: [id])
+  
+  @@index([orgId])
+  @@index([caseId])
+}
+
+model Invoice {
+  id         Int           @id @default(autoincrement())
+  orgId      Int
+  clientId   Int
+  invoiceNo  String
+  date       DateTime
+  dueDate    DateTime?
+  amount     Decimal
+  tax        Decimal?
+  total      Decimal
+  status     InvoiceStatus @default(draft)
+  notes      String?
+  createdBy  Int
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+  
+  org        Organization  @relation(fields: [orgId], references: [id])
+  client     Client        @relation(fields: [clientId], references: [id])
+  creator    User          @relation(fields: [createdBy], references: [id])
+  
+  @@index([orgId])
+  @@index([status])
+  @@unique([orgId, invoiceNo])
 }
 
 model Session {
@@ -107,8 +221,10 @@ model Session {
   tokenHash String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-
+  
   user User @relation(fields: [userId], references: [id])
+  
+  @@index([expiresAt])
 }
 
 model AuditLog {
@@ -122,11 +238,12 @@ model AuditLog {
   ua         String?
   meta       Json?
   createdAt  DateTime @default(now())
-
+  
   user User?         @relation(fields: [userId], references: [id])
   org  Organization? @relation(fields: [orgId], references: [id])
-
+  
   @@index([orgId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model Invite {
@@ -139,11 +256,12 @@ model Invite {
   expiresAt       DateTime
   acceptedAt      DateTime?
   createdAt       DateTime  @default(now())
-
+  
   org       Organization @relation(fields: [orgId], references: [id])
   invitedBy User         @relation("InvitedBy", fields: [invitedByUserId], references: [id])
-
+  
   @@index([orgId, email])
+  @@index([tokenHash])
 }
 
 model EmailVerificationToken {
@@ -152,8 +270,10 @@ model EmailVerificationToken {
   tokenHash String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-
+  
   user User @relation(fields: [userId], references: [id])
+  
+  @@index([tokenHash])
 }
 
 model PasswordResetToken {
@@ -162,6 +282,8 @@ model PasswordResetToken {
   tokenHash String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-
+  
   user User @relation(fields: [userId], references: [id])
+  
+  @@index([tokenHash])
 }
