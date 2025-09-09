@@ -1,27 +1,19 @@
-FROM node:20-alpine AS builder
+FROM node:18-alpine
 
 WORKDIR /app
 
+# Copy package files
 COPY package*.json ./
-COPY prisma ./prisma/
+RUN npm install
 
-RUN npm ci
-RUN npx prisma generate
-
+# Copy source code
 COPY . .
+
+# Build TypeScript
 RUN npm run build
 
-FROM node:20-alpine
+# Expose port
+EXPOSE 3000
 
-RUN apk add --no-cache openssl
-
-WORKDIR /app
-
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/package*.json ./
-
-EXPOSE 8000
-
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/server.js"]
+# Start command
+CMD ["npm", "start"]

@@ -1,4 +1,9 @@
 node_modules
-dist
+npm-debug.log
+.env
 .git
-python-backup
+.gitignore
+README.md
+.vscode
+.idea
+dist
