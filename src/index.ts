@@ -2,8 +2,8 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import authRouter from './routes/auth';
-import orgRouter from './routes/organizations';
-import contactRouter from './routes/contact';
+import statsRouter from './routes/stats';
+import meRouter from './routes/me';
 
 dotenv.config();
 
@@ -29,17 +29,28 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Contact endpoint (existing)
+app.post('/api/contact', (req, res) => {
+  console.log('Contact form:', req.body);
+  res.json({ success: true, message: 'Message received' });
+});
+
 // Routes
 app.use(authRouter);
-app.use(orgRouter);
-app.use(contactRouter);
+app.use(meRouter);
+app.use(statsRouter);
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   console.error('Error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
 });
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+export default app;
