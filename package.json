@@ -8,8 +8,8 @@
     "dev": "ts-node-dev src/index.ts"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.478.0",
-    "@aws-sdk/s3-request-presigner": "^3.478.0",
+    "@aws-sdk/client-s3": "^3.884.0",
+    "@aws-sdk/s3-request-presigner": "^3.884.0",
     "@prisma/client": "^5.22.0",
     "@sentry/node": "^7.91.0",
     "bcryptjs": "^2.4.3",
