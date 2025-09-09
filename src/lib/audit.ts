@@ -3,28 +3,30 @@ import { Request } from 'express';
 
 const prisma = new PrismaClient();
 
-interface AuditParams {
+export interface AuditParams {
   action: string;
   resource: string;
   resourceId?: string;
   meta?: any;
 }
 
-export async function audit(
-  params: AuditParams,
-  req: Request & { user?: any; orgId?: number }
-) {
+export interface AuthRequest extends Request {
+  user?: any;
+  orgId?: number;
+}
+
+export async function audit(params: AuditParams, req: AuthRequest): Promise<void> {
   try {
     await prisma.auditLog.create({
       data: {
-        orgId: req.orgId,
-        userId: req.user?.id,
+        orgId: req.orgId || null,
+        userId: req.user?.id || null,
         action: params.action,
         resource: params.resource,
-        resourceId: params.resourceId,
-        ip: req.ip || req.headers['x-forwarded-for']?.toString(),
-        ua: req.headers['user-agent'],
-        meta: params.meta,
+        resourceId: params.resourceId || null,
+        ip: req.ip || req.headers['x-forwarded-for']?.toString() || null,
+        ua: req.headers['user-agent'] || null,
+        meta: params.meta || null,
       },
     });
   } catch (error) {

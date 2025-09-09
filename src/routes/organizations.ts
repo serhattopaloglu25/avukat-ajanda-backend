@@ -1,138 +1,133 @@
-import express from 'express';
+import { Router } from 'express';
+import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
+import { requireAuth, attachOrg, requireRole, AuthRequest } from '../middleware/auth';
+import { audit } from '../lib/audit';
+import { generateRandomToken, hashToken } from '../lib/auth';
 
-const router = express.Router();
+const router = Router();
 const prisma = new PrismaClient();
 
-const authMiddleware = (req: any, res: any, next: any) => {
-  const token = req.headers.authorization?.substring(7);
-  if (!token) return res.status(401).json({ error: 'Unauthorized' });
-  
-  try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || '') as any;
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// POST /api/orgs - Create organization
-router.post('/', authMiddleware, async (req: any, res) => {
-  try {
-    const org = await prisma.organization.create({
-      data: {
-        name: req.body.name,
-        memberships: {
-          create: {
-            userId: req.user.userId,
-            role: 'admin'
-          }
-        }
-      }
-    });
-    res.status(201).json(org);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create organization' });
-  }
-});
-
-// GET /api/orgs - Get user's organizations
-router.get('/', authMiddleware, async (req: any, res) => {
-  const memberships = await prisma.membership.findMany({
-    where: { userId: req.user.userId },
-    include: { org: true }
-  });
-  res.json(memberships);
-});
-
-// GET /api/orgs/:id/members
-router.get('/:id/members', authMiddleware, async (req: any, res) => {
-  // Check if user is member
-  const membership = await prisma.membership.findFirst({
+// Get user's organizations
+router.get('/orgs', requireAuth, async (req: AuthRequest, res) => {
+  const orgs = await prisma.organization.findMany({
     where: {
-      userId: req.user.userId,
-      orgId: parseInt(req.params.id)
-    }
+      memberships: {
+        some: {
+          userId: req.user.id,
+          status: 'active',
+        },
+      },
+    },
+    include: {
+      _count: {
+        select: {
+          memberships: true,
+          clients: true,
+          cases: true,
+        },
+      },
+    },
   });
-  
-  if (!membership) {
-    return res.status(403).json({ error: 'Access denied' });
-  }
-  
+
+  res.json(orgs);
+});
+
+// Get organization members
+router.get('/orgs/:id/members', requireAuth, attachOrg, async (req: AuthRequest, res) => {
   const members = await prisma.membership.findMany({
-    where: { orgId: parseInt(req.params.id) },
-    include: { user: { select: { id: true, email: true, name: true } } }
+    where: {
+      orgId: parseInt(req.params.id),
+      status: 'active',
+    },
+    include: {
+      user: {
+        select: {
+          id: true,
+          email: true,
+          name: true,
+        },
+      },
+    },
   });
-  
+
   res.json(members);
 });
 
-// POST /api/orgs/:id/invite
-router.post('/:id/invite', authMiddleware, async (req: any, res) => {
-  const { email, role } = req.body;
-  
-  // Check if user is admin
-  const adminCheck = await prisma.membership.findFirst({
-    where: {
-      userId: req.user.userId,
-      orgId: parseInt(req.params.id),
-      role: 'admin'
-    }
-  });
-  
-  if (!adminCheck) {
-    return res.status(403).json({ error: 'Only admins can invite' });
-  }
-  
-  // Find or create user
-  let invitedUser = await prisma.user.findUnique({ where: { email } });
-  if (!invitedUser) {
-    // Create placeholder user
-    invitedUser = await prisma.user.create({
-      data: {
-        email,
-        passwordHash: 'PENDING',
-        name: email.split('@')[0]
-      }
-    });
-  }
-  
-  // Create membership
-  const membership = await prisma.membership.create({
-    data: {
-      userId: invitedUser.id,
-      orgId: parseInt(req.params.id),
-      role
-    }
-  });
-  
-  res.status(201).json(membership);
+// Invite member
+const inviteSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(['admin', 'lawyer', 'assistant']),
 });
 
-// PUT /api/orgs/:id/members/:memberId
-router.put('/:id/members/:memberId', authMiddleware, async (req: any, res) => {
-  const { role } = req.body;
-  
-  // Check if user is admin
-  const adminCheck = await prisma.membership.findFirst({
-    where: {
-      userId: req.user.userId,
-      orgId: parseInt(req.params.id),
-      role: 'admin'
+router.post(
+  '/orgs/:id/invites',
+  requireAuth,
+  attachOrg,
+  requireRole('owner', 'admin'),
+  async (req: AuthRequest, res) => {
+    try {
+      const data = inviteSchema.parse(req.body);
+      const orgId = parseInt(req.params.id);
+
+      // Check if already member
+      const existingUser = await prisma.user.findUnique({
+        where: { email: data.email },
+      });
+
+      if (existingUser) {
+        const existingMembership = await prisma.membership.findUnique({
+          where: {
+            userId_orgId: {
+              userId: existingUser.id,
+              orgId,
+            },
+          },
+        });
+
+        if (existingMembership) {
+          return res.status(400).json({ error: 'User is already a member' });
+        }
+      }
+
+      // Create invite
+      const token = generateRandomToken();
+      const invite = await prisma.invite.create({
+        data: {
+          orgId,
+          email: data.email,
+          role: data.role,
+          tokenHash: hashToken(token),
+          invitedByUserId: req.user.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+        },
+      });
+
+      // TODO: Send email with invite link
+      const inviteUrl = `https://avukatajanda.com/invite?token=${token}`;
+
+      await audit(
+        {
+          action: 'invite_sent',
+          resource: 'invite',
+          resourceId: invite.id.toString(),
+          meta: { email: data.email, role: data.role },
+        },
+        req
+      );
+
+      res.json({
+        success: true,
+        inviteUrl, // In production, this would be sent via email
+      });
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: 'Invalid data' });
+      }
+      console.error('Invite error:', error);
+      res.status(500).json({ error: 'Failed to send invite' });
     }
-  });
-  
-  if (!adminCheck) {
-    return res.status(403).json({ error: 'Only admins can update roles' });
   }
-  
-  await prisma.membership.update({
-    where: { id: parseInt(req.params.memberId) },
-    data: { role }
-  });
-  
-  res.json({ message: 'Role updated' });
-});
+);
 
 export default router;
