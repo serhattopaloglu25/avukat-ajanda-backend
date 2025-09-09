@@ -4,6 +4,9 @@ import dotenv from 'dotenv';
 import authRouter from './routes/auth';
 import statsRouter from './routes/stats';
 import meRouter from './routes/me';
+import clientsRouter from './routes/clients';
+import casesRouter from './routes/cases';
+import eventsRouter from './routes/events';
 
 dotenv.config();
 
@@ -29,16 +32,19 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Contact endpoint (existing)
-app.post('/api/contact', (req, res) => {
-  console.log('Contact form:', req.body);
-  res.json({ success: true, message: 'Message received' });
-});
-
 // Routes
 app.use(authRouter);
 app.use(meRouter);
 app.use(statsRouter);
+app.use(clientsRouter);
+app.use(casesRouter);
+app.use(eventsRouter);
+
+// Contact endpoint
+app.post('/api/contact', (req, res) => {
+  console.log('Contact form:', req.body);
+  res.json({ success: true });
+});
 
 // Error handler
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

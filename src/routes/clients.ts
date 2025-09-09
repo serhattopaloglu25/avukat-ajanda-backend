@@ -1,123 +1,152 @@
 import { Router } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
-import { authMiddleware, AuthRequest } from '../middlewares/auth';
+import { PrismaClient } from '@prisma/client';
+import { requireAuth, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-const clientSchema = z.object({
-  name: z.string().min(1),
-  email: z.string().email(),
-  phone: z.string(),
-  address: z.string().optional()
-});
-
-// List clients (with pagination)
-router.get('/', authMiddleware, async (req: AuthRequest, res) => {
+// Get clients
+router.get('/clients', requireAuth, async (req: AuthRequest, res) => {
   try {
+    const orgId = req.orgId;
     const page = parseInt(req.query.page as string) || 1;
-    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-    const skip = (page - 1) * limit;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const search = req.query.search as string;
     
+    const where: any = { orgId };
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+
     const [clients, total] = await Promise.all([
       prisma.client.findMany({
-        where: { userId: req.user?.userId },
-        skip,
+        where,
+        skip: (page - 1) * limit,
         take: limit,
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       }),
-      prisma.client.count({ where: { userId: req.user?.userId } })
+      prisma.client.count({ where }),
     ]);
-    
+
     res.json({
-      data: clients,
-      page,
-      limit,
+      clients,
       total,
-      pages: Math.ceil(total / limit)
+      page,
+      pages: Math.ceil(total / limit),
     });
   } catch (error) {
+    console.error('Get clients error:', error);
     res.status(500).json({ error: 'Failed to fetch clients' });
   }
 });
 
 // Create client
-router.post('/', authMiddleware, async (req: AuthRequest, res) => {
+const createClientSchema = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  tcNo: z.string().optional(),
+  address: z.string().optional(),
+  notes: z.string().optional(),
+});
+
+router.post('/clients', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const data = clientSchema.parse(req.body);
+    const data = createClientSchema.parse(req.body);
+    
     const client = await prisma.client.create({
-      data: { ...data, userId: req.user!.userId }
+      data: {
+        ...data,
+        orgId: req.orgId!,
+        createdByUserId: req.user.id,
+      },
     });
+
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        orgId: req.orgId,
+        userId: req.user.id,
+        action: 'create',
+        resource: 'client',
+        resourceId: client.id.toString(),
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      },
+    });
+
     res.status(201).json(client);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(422).json({ errors: error.issues });
+      return res.status(422).json({ error: 'Invalid data', details: error.errors });
     }
+    console.error('Create client error:', error);
     res.status(500).json({ error: 'Failed to create client' });
   }
 });
 
-// Get client by ID
-router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
+// Update client
+router.patch('/clients/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const client = await prisma.client.findFirst({
-      where: { 
-        id: parseInt(req.params.id),
-        userId: req.user?.userId 
-      }
+    const id = parseInt(req.params.id);
+    const data = createClientSchema.partial().parse(req.body);
+    
+    const client = await prisma.client.update({
+      where: { id, orgId: req.orgId },
+      data: {
+        ...data,
+        updatedByUserId: req.user.id,
+      },
     });
-    
-    if (!client) {
-      return res.status(404).json({ error: 'Client not found' });
-    }
-    
+
+    await prisma.auditLog.create({
+      data: {
+        orgId: req.orgId,
+        userId: req.user.id,
+        action: 'update',
+        resource: 'client',
+        resourceId: id.toString(),
+        meta: data,
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      },
+    });
+
     res.json(client);
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch client' });
-  }
-});
-
-// Update client
-router.put('/:id', authMiddleware, async (req: AuthRequest, res) => {
-  try {
-    const data = clientSchema.partial().parse(req.body);
-    const client = await prisma.client.updateMany({
-      where: { 
-        id: parseInt(req.params.id),
-        userId: req.user?.userId 
-      },
-      data
-    });
-    
-    if (client.count === 0) {
-      return res.status(404).json({ error: 'Client not found' });
-    }
-    
-    res.json({ message: 'Client updated' });
-  } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(422).json({ errors: error.issues });
+      return res.status(422).json({ error: 'Invalid data' });
     }
     res.status(500).json({ error: 'Failed to update client' });
   }
 });
 
 // Delete client
-router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+router.delete('/clients/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const result = await prisma.client.deleteMany({
-      where: { 
-        id: parseInt(req.params.id),
-        userId: req.user?.userId 
-      }
+    const id = parseInt(req.params.id);
+    
+    await prisma.client.delete({
+      where: { id, orgId: req.orgId },
     });
-    
-    if (result.count === 0) {
-      return res.status(404).json({ error: 'Client not found' });
-    }
-    
-    res.json({ message: 'Client deleted' });
+
+    await prisma.auditLog.create({
+      data: {
+        orgId: req.orgId,
+        userId: req.user.id,
+        action: 'delete',
+        resource: 'client',
+        resourceId: id.toString(),
+        ip: req.ip,
+        ua: req.headers['user-agent'],
+      },
+    });
+
+    res.status(204).send();
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete client' });
   }
