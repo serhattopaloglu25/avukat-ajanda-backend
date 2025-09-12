@@ -1,154 +1,334 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { requireAuth, AuthRequest } from '../middleware/auth';
+import { z } from 'zod';
 
 const router = Router();
 const prisma = new PrismaClient();
 
-// Get clients
-router.get('/clients', requireAuth, async (req: AuthRequest, res) => {
+// Validation schemas
+const createClientSchema = z.object({
+  name: z.string().min(1, 'İsim zorunludur'),
+  email: z.string().email().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  tcKimlik: z.string().length(11).optional().nullable(),
+  vergiNo: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+  tags: z.array(z.string()).optional().default([])
+});
+
+const updateClientSchema = createClientSchema.partial();
+
+// Get all clients with filtering
+router.get('/api/clients', requireAuth, async (req: AuthRequest, res) => {
   try {
     const orgId = req.orgId;
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const search = req.query.search as string;
-    
+    const { 
+      search, 
+      tags,
+      page = '1',
+      limit = '20',
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    const skip = (parseInt(page as string) - 1) * parseInt(limit as string);
+    const take = parseInt(limit as string);
+
+    // Build where clause
     const where: any = { orgId };
+    
     if (search) {
       where.OR = [
-        { name: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } },
+        { name: { contains: search as string, mode: 'insensitive' } },
+        { email: { contains: search as string, mode: 'insensitive' } },
+        { phone: { contains: search as string, mode: 'insensitive' } },
+        { tcKimlik: { contains: search as string, mode: 'insensitive' } },
+        { vergiNo: { contains: search as string, mode: 'insensitive' } }
       ];
+    }
+
+    if (tags) {
+      const tagArray = Array.isArray(tags) ? tags : [tags];
+      where.tags = { hasSome: tagArray };
     }
 
     const [clients, total] = await Promise.all([
       prisma.client.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+        orderBy: { [sortBy as string]: sortOrder },
+        include: {
+          _count: {
+            select: {
+              cases: true,
+              invoices: true
+            }
+          }
+        }
       }),
-      prisma.client.count({ where }),
+      prisma.client.count({ where })
     ]);
 
     res.json({
       clients,
-      total,
-      page,
-      pages: Math.ceil(total / limit),
+      pagination: {
+        page: parseInt(page as string),
+        limit: take,
+        total,
+        totalPages: Math.ceil(total / take)
+      }
     });
   } catch (error) {
     console.error('Get clients error:', error);
-    res.status(500).json({ error: 'Failed to fetch clients' });
+    res.status(500).json({ error: 'Müvekkiller yüklenemedi' });
+  }
+});
+
+// Get single client with related data
+router.get('/api/clients/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const orgId = req.orgId;
+
+    const client = await prisma.client.findFirst({
+      where: { 
+        id: parseInt(id),
+        orgId 
+      },
+      include: {
+        cases: {
+          orderBy: { createdAt: 'desc' },
+          take: 10
+        },
+        invoices: {
+          orderBy: { date: 'desc' },
+          take: 10
+        },
+        documents: {
+          orderBy: { createdAt: 'desc' },
+          take: 10
+        }
+      }
+    });
+
+    if (!client) {
+      return res.status(404).json({ error: 'Müvekkil bulunamadı' });
+    }
+
+    res.json(client);
+  } catch (error) {
+    console.error('Get client error:', error);
+    res.status(500).json({ error: 'Müvekkil bilgileri yüklenemedi' });
   }
 });
 
 // Create client
-const createClientSchema = z.object({
-  name: z.string().min(2).max(100),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  tcNo: z.string().optional(),
-  address: z.string().optional(),
-  notes: z.string().optional(),
-});
-
-router.post('/clients', requireAuth, async (req: AuthRequest, res) => {
+router.post('/api/clients', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const data = createClientSchema.parse(req.body);
+    const orgId = req.orgId!;
+    const userId = req.userId!;
     
+    const validatedData = createClientSchema.parse(req.body);
+
     const client = await prisma.client.create({
       data: {
-        ...data,
-        orgId: req.orgId!,
-        createdByUserId: req.user.id,
-      },
+        ...validatedData,
+        orgId,
+        createdByUserId: userId
+      }
     });
 
     // Audit log
     await prisma.auditLog.create({
       data: {
-        orgId: req.orgId,
-        userId: req.user.id,
+        orgId,
+        userId,
         action: 'create',
-        resource: 'client',
-        resourceId: client.id.toString(),
-        ip: req.ip,
-        ua: req.headers['user-agent'],
-      },
+        entityType: 'client',
+        entityId: client.id.toString(),
+        meta: validatedData
+      }
     });
 
     res.status(201).json(client);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(422).json({ error: 'Invalid data', details: error.errors });
+      return res.status(400).json({ 
+        error: 'Geçersiz veri',
+        details: error.errors 
+      });
     }
     console.error('Create client error:', error);
-    res.status(500).json({ error: 'Failed to create client' });
+    res.status(500).json({ error: 'Müvekkil oluşturulamadı' });
   }
 });
 
 // Update client
-router.patch('/clients/:id', requireAuth, async (req: AuthRequest, res) => {
+router.put('/api/clients/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const data = createClientSchema.partial().parse(req.body);
+    const { id } = req.params;
+    const orgId = req.orgId!;
+    const userId = req.userId!;
     
-    const client = await prisma.client.update({
-      where: { id, orgId: req.orgId },
-      data: {
-        ...data,
-        updatedByUserId: req.user.id,
-      },
+    const validatedData = updateClientSchema.parse(req.body);
+
+    // Check if client exists and belongs to org
+    const existing = await prisma.client.findFirst({
+      where: { 
+        id: parseInt(id),
+        orgId 
+      }
     });
 
+    if (!existing) {
+      return res.status(404).json({ error: 'Müvekkil bulunamadı' });
+    }
+
+    const client = await prisma.client.update({
+      where: { id: parseInt(id) },
+      data: {
+        ...validatedData,
+        updatedByUserId: userId
+      }
+    });
+
+    // Audit log
     await prisma.auditLog.create({
       data: {
-        orgId: req.orgId,
-        userId: req.user.id,
+        orgId,
+        userId,
         action: 'update',
-        resource: 'client',
-        resourceId: id.toString(),
-        meta: data,
-        ip: req.ip,
-        ua: req.headers['user-agent'],
-      },
+        entityType: 'client',
+        entityId: id,
+        meta: validatedData
+      }
     });
 
     res.json(client);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return res.status(422).json({ error: 'Invalid data' });
+      return res.status(400).json({ 
+        error: 'Geçersiz veri',
+        details: error.errors 
+      });
     }
-    res.status(500).json({ error: 'Failed to update client' });
+    console.error('Update client error:', error);
+    res.status(500).json({ error: 'Müvekkil güncellenemedi' });
   }
 });
 
-// Delete client
-router.delete('/clients/:id', requireAuth, async (req: AuthRequest, res) => {
+// Delete client (soft delete by archiving related data)
+router.delete('/api/clients/:id', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const id = parseInt(req.params.id);
-    
-    await prisma.client.delete({
-      where: { id, orgId: req.orgId },
+    const { id } = req.params;
+    const orgId = req.orgId!;
+    const userId = req.userId!;
+
+    // Check if client exists and has no active cases
+    const client = await prisma.client.findFirst({
+      where: { 
+        id: parseInt(id),
+        orgId 
+      },
+      include: {
+        _count: {
+          select: {
+            cases: {
+              where: { status: 'active' }
+            }
+          }
+        }
+      }
     });
 
+    if (!client) {
+      return res.status(404).json({ error: 'Müvekkil bulunamadı' });
+    }
+
+    if (client._count.cases > 0) {
+      return res.status(400).json({ 
+        error: 'Aktif davası olan müvekkil silinemez' 
+      });
+    }
+
+    // Archive all related cases
+    await prisma.case.updateMany({
+      where: { clientId: parseInt(id) },
+      data: { status: 'archived' }
+    });
+
+    // Delete the client
+    await prisma.client.delete({
+      where: { id: parseInt(id) }
+    });
+
+    // Audit log
     await prisma.auditLog.create({
       data: {
-        orgId: req.orgId,
-        userId: req.user.id,
+        orgId,
+        userId,
         action: 'delete',
-        resource: 'client',
-        resourceId: id.toString(),
-        ip: req.ip,
-        ua: req.headers['user-agent'],
-      },
+        entityType: 'client',
+        entityId: id,
+        meta: { clientName: client.name }
+      }
     });
 
-    res.status(204).send();
+    res.json({ message: 'Müvekkil başarıyla silindi' });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete client' });
+    console.error('Delete client error:', error);
+    res.status(500).json({ error: 'Müvekkil silinemedi' });
+  }
+});
+
+// Get client statistics
+router.get('/api/clients/:id/stats', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params;
+    const orgId = req.orgId!;
+
+    const [
+      totalCases,
+      activeCases,
+      totalInvoices,
+      unpaidAmount,
+      totalDocuments
+    ] = await Promise.all([
+      prisma.case.count({
+        where: { clientId: parseInt(id), orgId }
+      }),
+      prisma.case.count({
+        where: { clientId: parseInt(id), orgId, status: 'active' }
+      }),
+      prisma.invoice.count({
+        where: { clientId: parseInt(id), orgId }
+      }),
+      prisma.invoice.aggregate({
+        where: { 
+          clientId: parseInt(id), 
+          orgId,
+          status: { in: ['draft', 'sent', 'overdue'] }
+        },
+        _sum: { totalAmount: true }
+      }),
+      prisma.document.count({
+        where: { clientId: parseInt(id), orgId }
+      })
+    ]);
+
+    res.json({
+      totalCases,
+      activeCases,
+      totalInvoices,
+      unpaidAmount: unpaidAmount._sum.totalAmount || 0,
+      totalDocuments
+    });
+  } catch (error) {
+    console.error('Get client stats error:', error);
+    res.status(500).json({ error: 'İstatistikler yüklenemedi' });
   }
 });
 

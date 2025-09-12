@@ -36,6 +36,14 @@ enum InvoiceStatus {
   cancelled
 }
 
+enum ExpenseType {
+  court_fee
+  travel
+  document
+  expert_fee
+  other
+}
+
 model User {
   id        Int      @id @default(autoincrement())
   email     String   @unique
@@ -58,6 +66,7 @@ model User {
   eventsCreated          Event[]               @relation("EventCreatedBy")
   filesUploaded          File[]
   invoicesCreated        Invoice[]
+  timeEntries            TimeEntry[]
 }
 
 model Organization {
@@ -78,6 +87,8 @@ model Organization {
   invoices    Invoice[]
   auditLogs   AuditLog[]
   invites     Invite[]
+  documents   Document[]
+  templates   Template[]
 }
 
 model Membership {
@@ -102,9 +113,11 @@ model Client {
   name            String
   email           String?
   phone           String?
-  tcNo            String?
-  address         String?
+  tcKimlik        String?  // NEW: TC Kimlik No
+  vergiNo         String?  // NEW: Vergi No
+  address         String?  // UPDATED: Adres
   notes           String?
+  tags            String[] @default([]) // NEW: Etiketler
   createdByUserId Int
   updatedByUserId Int?
   createdAt       DateTime @default(now())
@@ -115,9 +128,11 @@ model Client {
   updatedBy User?        @relation("ClientUpdatedBy", fields: [updatedByUserId], references: [id])
   cases     Case[]
   invoices  Invoice[]
+  documents Document[]
   
   @@index([orgId])
   @@index([name])
+  @@index([tcKimlik])
 }
 
 model Case {
@@ -125,12 +140,14 @@ model Case {
   orgId           Int
   clientId        Int
   title           String
-  caseNumber      String?
-  court           String?
+  caseNo          String?    @unique // NEW: Unique case number
+  court           String?    // UPDATED: Mahkeme
+  jurisdiction    String?    // NEW: Yargı çevresi
   judge           String?
   status          CaseStatus @default(active)
   description     String?
-  nextHearing     DateTime?
+  hearingDates    DateTime[] @default([]) // NEW: Duruşma tarihleri array
+  nextHearing     DateTime?  // KEPT for compatibility
   createdByUserId Int
   updatedByUserId Int?
   createdAt       DateTime   @default(now())
@@ -142,10 +159,48 @@ model Case {
   updatedBy User?        @relation("CaseUpdatedBy", fields: [updatedByUserId], references: [id])
   events    Event[]
   files     File[]
+  expenses  CaseExpense[] // NEW
+  advances  CaseAdvance[] // NEW
+  timeEntries TimeEntry[]
+  documents Document[]
   
   @@index([orgId])
   @@index([clientId])
   @@index([status])
+  @@index([caseNo])
+}
+
+// NEW: Dava masrafları
+model CaseExpense {
+  id          Int         @id @default(autoincrement())
+  caseId      Int
+  type        ExpenseType
+  amount      Decimal
+  currency    String      @default("TRY")
+  description String?
+  date        DateTime
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  
+  case Case @relation(fields: [caseId], references: [id])
+  
+  @@index([caseId])
+}
+
+// NEW: Dava avansları
+model CaseAdvance {
+  id          Int      @id @default(autoincrement())
+  caseId      Int
+  amount      Decimal
+  currency    String   @default("TRY")
+  description String?
+  date        DateTime
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  case Case @relation(fields: [caseId], references: [id])
+  
+  @@index([caseId])
 }
 
 model Event {
@@ -158,7 +213,8 @@ model Event {
   startAt         DateTime
   endAt           DateTime?
   location        String?
-  reminder        Boolean   @default(false)
+  reminders       Int[]     @default([]) // NEW: Hatırlatıcı dakikalar [15, 60, 1440]
+  reminder        Boolean   @default(false) // KEPT for compatibility
   createdByUserId Int
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -169,6 +225,7 @@ model Event {
   
   @@index([orgId])
   @@index([startAt])
+  @@index([caseId])
 }
 
 model File {
@@ -190,21 +247,81 @@ model File {
   @@index([caseId])
 }
 
-model Invoice {
-  id         Int           @id @default(autoincrement())
+// NEW: Document model for better file management
+model Document {
+  id         Int      @id @default(autoincrement())
   orgId      Int
-  clientId   Int
-  invoiceNo  String
-  date       DateTime
-  dueDate    DateTime?
-  amount     Decimal
-  tax        Decimal?
-  total      Decimal
-  status     InvoiceStatus @default(draft)
-  notes      String?
-  createdBy  Int
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  caseId     Int?
+  clientId   Int?
+  key        String   @unique
+  name       String
+  mimeType   String
+  size       Int
+  uploadedBy Int
+  createdAt  DateTime @default(now())
+  
+  org        Organization @relation(fields: [orgId], references: [id])
+  case       Case?        @relation(fields: [caseId], references: [id])
+  client     Client?      @relation(fields: [clientId], references: [id])
+  
+  @@index([orgId])
+  @@index([caseId])
+  @@index([clientId])
+}
+
+// NEW: Template model for document templates
+model Template {
+  id        Int      @id @default(autoincrement())
+  orgId     Int
+  name      String
+  fields    Json     // Field definitions {name, type, required}
+  bodyMd    String   // Markdown body with {{field}} placeholders
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  org Organization @relation(fields: [orgId], references: [id])
+  
+  @@index([orgId])
+}
+
+// NEW: Time tracking
+model TimeEntry {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  caseId      Int
+  startTime   DateTime
+  endTime     DateTime?
+  duration    Int?     // Minutes
+  rate        Decimal?
+  currency    String   @default("TRY")
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  user User @relation(fields: [userId], references: [id])
+  case Case @relation(fields: [caseId], references: [id])
+  
+  @@index([userId])
+  @@index([caseId])
+}
+
+model Invoice {
+  id            Int           @id @default(autoincrement())
+  orgId         Int
+  clientId      Int
+  invoiceNo     String
+  date          DateTime
+  dueDate       DateTime?
+  amount        Decimal
+  tax           Decimal?
+  totalAmount   Decimal       // RENAMED from 'total' for clarity
+  status        InvoiceStatus @default(draft)
+  notes         String?
+  items         Json?         // NEW: Invoice line items
+  paidAt        DateTime?     // NEW: Payment date
+  createdBy     Int
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
   
   org        Organization  @relation(fields: [orgId], references: [id])
   client     Client        @relation(fields: [clientId], references: [id])
@@ -232,8 +349,8 @@ model AuditLog {
   orgId      Int?
   userId     Int?
   action     String
-  resource   String
-  resourceId String?
+  entityType String   // RENAMED from 'resource' for consistency
+  entityId   String?  // RENAMED from 'resourceId' for consistency
   ip         String?
   ua         String?
   meta       Json?
