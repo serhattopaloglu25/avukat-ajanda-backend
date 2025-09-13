@@ -13,8 +13,10 @@ datasource db {
 model User {
   id           Int      @id @default(autoincrement())
   email        String   @unique
-  passwordHash String
+  password     String   @default("")
+  passwordHash String   @default("")
   name         String?
+  phone        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   
@@ -22,11 +24,12 @@ model User {
   clients      Client[]
   cases        Case[]
   events       Event[]
-  
-  // Existing relations (keep for backwards compatibility)
+  eventsCreated Event[] @relation("EventCreatedBy")
+  invoicesCreated Invoice[]
   memberships  Membership[]
   timeEntries  TimeEntry[]
   auditLogs    AuditLog[]
+  documents    Document[] @relation("DocumentUploader")
 }
 
 model Client {
@@ -35,43 +38,43 @@ model Client {
   email     String?
   phone     String?
   address   String?
-  userId    Int
-  createdAt DateTime @default(now())
-  
-  // Relations
-  user      User     @relation(fields: [userId], references: [id])
-  cases     Case[]
-  
-  // Existing fields (keep for backwards compatibility)
+  userId    Int?
   orgId     Int?
   tcKimlik  String?
   vergiNo   String?
-  invoices  Invoice[]
-  updatedAt DateTime @default(now()) @updatedAt
-  
-  @@index([userId])
-}
-
-model Case {
-  id        Int      @id @default(autoincrement())
-  caseNo    String   @unique
-  title     String
-  status    String   @default("active")
-  clientId  Int
-  userId    Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   // Relations
-  client    Client   @relation(fields: [clientId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-  events    Event[]
+  user      User?     @relation(fields: [userId], references: [id])
+  org       Organization? @relation(fields: [orgId], references: [id])
+  cases     Case[]
+  invoices  Invoice[]
+  documents Document[]
   
-  // Existing fields (keep for backwards compatibility)
+  @@index([userId])
+  @@index([orgId])
+}
+
+model Case {
+  id          Int       @id @default(autoincrement())
+  caseNo      String    @unique
+  title       String
+  status      String    @default("active")
+  clientId    Int
+  userId      Int?
   orgId       Int?
   court       String?
   description String?
   nextHearing DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  
+  // Relations
+  client      Client    @relation(fields: [clientId], references: [id])
+  user        User?     @relation(fields: [userId], references: [id])
+  org         Organization? @relation(fields: [orgId], references: [id])
+  events      Event[]
   documents   Document[]
   files       CaseFile[]
   timeEntries TimeEntry[]
@@ -80,37 +83,39 @@ model Case {
   
   @@index([userId])
   @@index([clientId])
+  @@index([orgId])
 }
 
 model Event {
-  id        Int       @id @default(autoincrement())
-  title     String
-  type      String    @default("hearing")
-  caseId    Int?
-  userId    Int
-  startsAt  DateTime
-  endsAt    DateTime?
-  location  String?
-  notes     String?
-  createdAt DateTime  @default(now())
+  id            Int       @id @default(autoincrement())
+  title         String
+  type          String    @default("hearing")
+  caseId        Int?
+  userId        Int?
+  orgId         Int?
+  startsAt      DateTime?
+  startAt       DateTime?
+  endsAt        DateTime?
+  endAt         DateTime?
+  location      String?
+  notes         String?
+  reminder      Boolean   @default(false)
+  createdById   Int?
+  createdByUserId Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   
   // Relations
-  case      Case?     @relation(fields: [caseId], references: [id])
-  user      User      @relation(fields: [userId], references: [id])
-  
-  // Existing fields (keep for backwards compatibility)
-  orgId     Int?
-  startAt   DateTime?
-  endAt     DateTime?
-  createdBy User?     @relation("EventCreatedBy", fields: [createdById], references: [id])
-  createdById Int?
-  updatedAt DateTime @default(now()) @updatedAt
+  case          Case?     @relation(fields: [caseId], references: [id])
+  user          User?     @relation(fields: [userId], references: [id])
+  org           Organization? @relation(fields: [orgId], references: [id])
+  createdBy     User?     @relation("EventCreatedBy", fields: [createdById], references: [id])
   
   @@index([userId])
   @@index([caseId])
+  @@index([orgId])
 }
 
-// Keep all existing models for backwards compatibility
 model Organization {
   id        Int      @id @default(autoincrement())
   name      String
@@ -198,9 +203,10 @@ model Document {
   uploadedBy Int
   createdAt  DateTime @default(now())
   
-  org    Organization @relation(fields: [orgId], references: [id])
-  case   Case?        @relation(fields: [caseId], references: [id])
-  client Client?      @relation(fields: [clientId], references: [id])
+  org      Organization @relation(fields: [orgId], references: [id])
+  case     Case?        @relation(fields: [caseId], references: [id])
+  client   Client?      @relation(fields: [clientId], references: [id])
+  uploader User         @relation("DocumentUploader", fields: [uploadedBy], references: [id])
   
   @@index([orgId])
   @@index([caseId])
@@ -242,6 +248,7 @@ model TimeEntry {
 model Expense {
   id          Int      @id @default(autoincrement())
   caseId      Int
+  orgId       Int?
   type        String
   description String?
   amount      Decimal  @db.Money
@@ -250,11 +257,13 @@ model Expense {
   createdAt   DateTime @default(now())
   
   case Case @relation(fields: [caseId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
 }
 
 model Advance {
   id        Int      @id @default(autoincrement())
   caseId    Int
+  orgId     Int?
   amount    Decimal  @db.Money
   currency  String   @default("TRY")
   date      DateTime
@@ -262,6 +271,7 @@ model Advance {
   createdAt DateTime @default(now())
   
   case Case @relation(fields: [caseId], references: [id])
+  org  Organization? @relation(fields: [orgId], references: [id])
 }
 
 model AuditLog {

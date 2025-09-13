@@ -40,7 +40,8 @@ router.post('/auth/register', async (req, res) => {
     const user = await prisma.user.create({
       data: {
         email: validatedData.email,
-        passwordHash,
+        password: passwordHash,
+        passwordHash: passwordHash, // Both fields for compatibility
         name: validatedData.name
       },
       select: {
@@ -88,8 +89,11 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Geçersiz email veya şifre' });
     }
 
-    // Verify password
-    const validPassword = await bcrypt.compare(validatedData.password, user.passwordHash);
+    // Verify password - try both fields for compatibility
+    const validPassword = await bcrypt.compare(
+      validatedData.password, 
+      user.passwordHash || user.password
+    );
     
     if (!validPassword) {
       return res.status(401).json({ error: 'Geçersiz email veya şifre' });
