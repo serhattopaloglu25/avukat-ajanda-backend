@@ -1,49 +1,89 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-min-32-characters-required';
 
 export interface AuthRequest extends Request {
-  user?: any;
+  userId?: number;
   orgId?: number;
+  role?: string;
 }
 
-export async function requireAuth(
+// Basic auth middleware
+export const requireAuth = async (
   req: AuthRequest,
   res: Response,
   next: NextFunction
-): Promise<void> {
+) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
     
     if (!token) {
-      res.status(401).json({ error: 'Unauthorized' });
-      return;
+      return res.status(401).json({ error: 'Token gerekli' });
     }
 
-    const payload = jwt.verify(token, JWT_SECRET) as any;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret') as any;
     
-    const user = await prisma.user.findUnique({
-      where: { id: payload.userId },
-      include: {
-        memberships: {
-          where: { status: 'active' },
-          include: { org: true },
-        },
+    // Get user's current membership
+    const membership = await prisma.membership.findFirst({
+      where: {
+        userId: decoded.userId,
+        status: 'active'
       },
+      include: {
+        user: true
+      }
     });
 
-    if (!user) {
-      res.status(401).json({ error: 'User not found' });
-      return;
+    if (!membership) {
+      return res.status(403).json({ error: 'Aktif üyelik bulunamadı' });
     }
 
-    req.user = user;
-    req.orgId = payload.orgId || user.memberships[0]?.orgId;
+    req.userId = decoded.userId;
+    req.orgId = membership.orgId;
+    req.role = membership.role;
+    
+    // Log activity
+    await prisma.auditLog.create({
+      data: {
+        orgId: membership.orgId,
+        userId: decoded.userId,
+        action: 'api_access',
+        entityType: req.path,
+        ip: req.ip,
+        ua: req.headers['user-agent']
+      }
+    }).catch(() => {}); // Don't fail request if audit fails
+
     next();
   } catch (error) {
-    res.status(401).json({ error: 'Invalid token' });
+    return res.status(401).json({ error: 'Geçersiz token' });
   }
-}
+};
+
+// Role-based access control
+export const requireRole = (allowedRoles: string[]) => {
+  return (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!req.role || !allowedRoles.includes(req.role)) {
+      return res.status(403).json({ 
+        error: 'Bu işlem için yetkiniz yok',
+        required: allowedRoles,
+        current: req.role
+      });
+    }
+    next();
+  };
+};
+
+// Owner only
+export const requireOwner = requireRole(['owner']);
+
+// Admin and above
+export const requireAdmin = requireRole(['owner', 'admin']);
+
+// Lawyer and above
+export const requireLawyer = requireRole(['owner', 'admin', 'lawyer']);
+
+// All authenticated users
+export const requireAssistant = requireRole(['owner', 'admin', 'lawyer', 'assistant']);
