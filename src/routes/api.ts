@@ -67,7 +67,7 @@ router.get('/api/stats', authMiddleware, async (req: AuthRequest, res) => {
     const nextHearing = events.length > 0 ? {
       id: events[0].id.toString(),
       title: events[0].title,
-      startAt: events[0].startsAt.toISOString(),
+      startAt: (events[0].startsAt || events[0].startAt)?.toISOString() || new Date().toISOString(),
       location: events[0].location
     } : null;
 
@@ -520,6 +520,8 @@ router.get('/api/events/ics', authMiddleware, async (req: AuthRequest, res) => {
     ics += 'CALSCALE:GREGORIAN\r\n';
 
     events.forEach(event => {
+      if (!event.startsAt) return; // Skip if no start date
+      
       ics += 'BEGIN:VEVENT\r\n';
       ics += `UID:${event.id}@avukatajanda.com\r\n`;
       ics += `DTSTAMP:${event.createdAt.toISOString().replace(/[-:]/g, '').replace('.000', '')}\r\n`;

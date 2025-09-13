@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 router.get('/dashboard/stats', requireAuth, async (req: AuthRequest, res) => {
   try {
     const userId = req.userId!;
-    const orgId = req.orgId || 1; // Default org for backwards compatibility
+    const orgId = req.orgId || 1;
 
     const [
       totalClients,
@@ -40,16 +40,14 @@ router.get('/dashboard/stats', requireAuth, async (req: AuthRequest, res) => {
       // Count upcoming events
       prisma.event.count({
         where: {
-          OR: [
-            { 
-              userId,
+          AND: [
+            {
               OR: [
-                { startsAt: { gte: new Date() } },
-                { startAt: { gte: new Date() } }
+                { userId },
+                { orgId }
               ]
             },
             {
-              orgId,
               OR: [
                 { startsAt: { gte: new Date() } },
                 { startAt: { gte: new Date() } }
@@ -113,76 +111,6 @@ router.get('/dashboard/stats', requireAuth, async (req: AuthRequest, res) => {
   } catch (error) {
     console.error('Dashboard stats error:', error);
     res.status(500).json({ error: 'İstatistikler yüklenemedi' });
-  }
-});
-
-// Recent activities endpoint
-router.get('/dashboard/activities', requireAuth, async (req: AuthRequest, res) => {
-  try {
-    const userId = req.userId!;
-    const orgId = req.orgId || 1;
-
-    const recentClients = await prisma.client.findMany({
-      where: {
-        OR: [
-          { userId },
-          { orgId }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true
-      }
-    });
-
-    const recentCases = await prisma.case.findMany({
-      where: {
-        OR: [
-          { userId },
-          { orgId }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      include: {
-        client: {
-          select: {
-            name: true
-          }
-        }
-      }
-    });
-
-    const recentEvents = await prisma.event.findMany({
-      where: {
-        OR: [
-          { userId },
-          { orgId }
-        ]
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      include: {
-        case: {
-          select: {
-            title: true
-          }
-        }
-      }
-    });
-
-    res.json({
-      recentClients,
-      recentCases,
-      recentEvents
-    });
-  } catch (error) {
-    console.error('Recent activities error:', error);
-    res.status(500).json({ error: 'Son aktiviteler yüklenemedi' });
   }
 });
 

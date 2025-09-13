@@ -1,35 +1,36 @@
 import { PrismaClient } from '@prisma/client';
-import { Request } from 'express';
+import { AuthRequest } from '../middleware/auth';
 
 const prisma = new PrismaClient();
 
-export interface AuditParams {
-  action: string;
-  resource: string;
-  resourceId?: string;
-  meta?: any;
-}
-
-export interface AuthRequest extends Request {
-  user?: any;
+export interface AuditLogParams {
   orgId?: number;
+  userId?: number;
+  action: string;
+  entityType: string;
+  entityId?: string;
+  meta?: any;
+  ip?: string;
+  ua?: string;
 }
 
-export async function audit(params: AuditParams, req: AuthRequest): Promise<void> {
+export async function createAuditLog(req: AuthRequest, params: AuditLogParams): Promise<void> {
   try {
+    const orgId = params.orgId || req.orgId || 1; // Default to 1 if no org
+    
     await prisma.auditLog.create({
       data: {
-        orgId: req.orgId || null,
-        userId: req.user?.id || null,
+        orgId,
+        userId: params.userId || req.userId,
         action: params.action,
-        resource: params.resource,
-        resourceId: params.resourceId || null,
-        ip: req.ip || req.headers['x-forwarded-for']?.toString() || null,
-        ua: req.headers['user-agent'] || null,
-        meta: params.meta || null,
-      },
+        entityType: params.entityType,
+        entityId: params.entityId,
+        meta: params.meta,
+        ip: params.ip || req.ip,
+        ua: params.ua || req.headers['user-agent']
+      }
     });
   } catch (error) {
-    console.error('Audit log failed:', error);
+    console.error('Failed to create audit log:', error);
   }
 }
