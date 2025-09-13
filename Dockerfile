@@ -1,21 +1,57 @@
-FROM node:18-alpine
+# Build stage
+FROM node:22-slim AS builder
+
+# Install OpenSSL for Prisma
+RUN apt-get update -y && \
+    apt-get install -y openssl && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY prisma ./prisma/
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
-# Copy all files
+# Copy source code
 COPY . .
 
-# Try to build (ignore errors for now)
-RUN npm run build || echo "Build completed with warnings"
+# Generate Prisma client
+RUN npx prisma generate
+
+# Build TypeScript
+RUN npm run build
+
+# Production stage
+FROM node:22-slim
+
+# Install OpenSSL for Prisma
+RUN apt-get update -y && \
+    apt-get install -y openssl && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+COPY prisma ./prisma/
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# Generate Prisma client
+RUN npx prisma generate
+
+# Copy built application
+COPY --from=builder /app/dist ./dist
+
+# Set timezone
+ENV TZ=Europe/Istanbul
 
 # Expose port
 EXPOSE 3000
 
-# Start the app
-CMD ["npm", "start"]
+# Run migrations and start server
+CMD sh -c "npx prisma migrate deploy && node dist/server.js"

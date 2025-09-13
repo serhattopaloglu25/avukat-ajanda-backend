@@ -1,3 +1,6 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -7,74 +10,113 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum Role {
-  owner
-  admin
-  lawyer
-  assistant
-}
-
-enum CaseStatus {
-  active
-  pending
-  closed
-  archived
-}
-
-enum EventType {
-  hearing
-  meeting
-  reminder
-  deadline
-}
-
-enum InvoiceStatus {
-  draft
-  sent
-  paid
-  overdue
-  cancelled
-}
-
-enum ExpenseType {
-  court_fee
-  travel
-  document
-  expert_fee
-  other
-}
-
 model User {
+  id           Int      @id @default(autoincrement())
+  email        String   @unique
+  passwordHash String
+  name         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  // Relations
+  clients      Client[]
+  cases        Case[]
+  events       Event[]
+  
+  // Existing relations (keep for backwards compatibility)
+  memberships  Membership[]
+  timeEntries  TimeEntry[]
+  auditLogs    AuditLog[]
+}
+
+model Client {
   id        Int      @id @default(autoincrement())
-  email     String   @unique
-  password  String
-  name      String?
+  name      String
+  email     String?
   phone     String?
+  address   String?
+  userId    Int
+  createdAt DateTime @default(now())
+  
+  // Relations
+  user      User     @relation(fields: [userId], references: [id])
+  cases     Case[]
+  
+  // Existing fields (keep for backwards compatibility)
+  orgId     Int?
+  tcKimlik  String?
+  vergiNo   String?
+  invoices  Invoice[]
+  updatedAt DateTime @default(now()) @updatedAt
+  
+  @@index([userId])
+}
+
+model Case {
+  id        Int      @id @default(autoincrement())
+  caseNo    String   @unique
+  title     String
+  status    String   @default("active")
+  clientId  Int
+  userId    Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
-  memberships            Membership[]
-  sessions               Session[]
-  auditLogs              AuditLog[]
-  invitesSent            Invite[]              @relation("InvitedBy")
-  emailVerificationTokens EmailVerificationToken[]
-  passwordResetTokens    PasswordResetToken[]
-  clientsCreated         Client[]              @relation("ClientCreatedBy")
-  clientsUpdated         Client[]              @relation("ClientUpdatedBy")
-  casesCreated           Case[]                @relation("CaseCreatedBy")
-  casesUpdated           Case[]                @relation("CaseUpdatedBy")
-  eventsCreated          Event[]               @relation("EventCreatedBy")
-  filesUploaded          File[]
-  invoicesCreated        Invoice[]
-  timeEntries            TimeEntry[]
+  // Relations
+  client    Client   @relation(fields: [clientId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  events    Event[]
+  
+  // Existing fields (keep for backwards compatibility)
+  orgId       Int?
+  court       String?
+  description String?
+  nextHearing DateTime?
+  documents   Document[]
+  files       CaseFile[]
+  timeEntries TimeEntry[]
+  expenses    Expense[]
+  advances    Advance[]
+  
+  @@index([userId])
+  @@index([clientId])
 }
 
+model Event {
+  id        Int       @id @default(autoincrement())
+  title     String
+  type      String    @default("hearing")
+  caseId    Int?
+  userId    Int
+  startsAt  DateTime
+  endsAt    DateTime?
+  location  String?
+  notes     String?
+  createdAt DateTime  @default(now())
+  
+  // Relations
+  case      Case?     @relation(fields: [caseId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  
+  // Existing fields (keep for backwards compatibility)
+  orgId     Int?
+  startAt   DateTime?
+  endAt     DateTime?
+  createdBy User?     @relation("EventCreatedBy", fields: [createdById], references: [id])
+  createdById Int?
+  updatedAt DateTime @default(now()) @updatedAt
+  
+  @@index([userId])
+  @@index([caseId])
+}
+
+// Keep all existing models for backwards compatibility
 model Organization {
   id        Int      @id @default(autoincrement())
   name      String
   slug      String   @unique
-  phone     String?
   address   String?
+  phone     String?
   taxNo     String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -83,19 +125,19 @@ model Organization {
   clients     Client[]
   cases       Case[]
   events      Event[]
-  files       File[]
   invoices    Invoice[]
-  auditLogs   AuditLog[]
-  invites     Invite[]
-  documents   Document[]
   templates   Template[]
+  documents   Document[]
+  expenses    Expense[]
+  advances    Advance[]
+  auditLogs   AuditLog[]
 }
 
 model Membership {
   id        Int      @id @default(autoincrement())
   userId    Int
   orgId     Int
-  role      Role     @default(lawyer)
+  role      String   @default("member")
   status    String   @default("active")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -104,199 +146,91 @@ model Membership {
   org  Organization @relation(fields: [orgId], references: [id])
   
   @@unique([userId, orgId])
-  @@index([orgId])
 }
 
-model Client {
-  id              Int      @id @default(autoincrement())
-  orgId           Int
-  name            String
-  email           String?
-  phone           String?
-  tcKimlik        String?  // NEW: TC Kimlik No
-  vergiNo         String?  // NEW: Vergi No
-  address         String?  // UPDATED: Adres
-  notes           String?
-  tags            String[] @default([]) // NEW: Etiketler
-  createdByUserId Int
-  updatedByUserId Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+model Invoice {
+  id           Int       @id @default(autoincrement())
+  orgId        Int
+  clientId     Int
+  invoiceNo    String
+  date         DateTime
+  dueDate      DateTime?
+  amount       Decimal   @db.Money
+  tax          Decimal?  @db.Money
+  totalAmount  Decimal   @db.Money
+  status       String    @default("draft")
+  items        Json?
+  notes        String?
+  paidAt       DateTime?
+  createdBy    Int
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
   
-  org       Organization @relation(fields: [orgId], references: [id])
-  createdBy User         @relation("ClientCreatedBy", fields: [createdByUserId], references: [id])
-  updatedBy User?        @relation("ClientUpdatedBy", fields: [updatedByUserId], references: [id])
-  cases     Case[]
-  invoices  Invoice[]
-  documents Document[]
+  org     Organization @relation(fields: [orgId], references: [id])
+  client  Client       @relation(fields: [clientId], references: [id])
+  creator User         @relation(fields: [createdBy], references: [id])
   
-  @@index([orgId])
-  @@index([name])
-  @@index([tcKimlik])
-}
-
-model Case {
-  id              Int        @id @default(autoincrement())
-  orgId           Int
-  clientId        Int
-  title           String
-  caseNo          String?    @unique // NEW: Unique case number
-  court           String?    // UPDATED: Mahkeme
-  jurisdiction    String?    // NEW: Yargı çevresi
-  judge           String?
-  status          CaseStatus @default(active)
-  description     String?
-  hearingDates    DateTime[] @default([]) // NEW: Duruşma tarihleri array
-  nextHearing     DateTime?  // KEPT for compatibility
-  createdByUserId Int
-  updatedByUserId Int?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  
-  org       Organization @relation(fields: [orgId], references: [id])
-  client    Client       @relation(fields: [clientId], references: [id])
-  createdBy User         @relation("CaseCreatedBy", fields: [createdByUserId], references: [id])
-  updatedBy User?        @relation("CaseUpdatedBy", fields: [updatedByUserId], references: [id])
-  events    Event[]
-  files     File[]
-  expenses  CaseExpense[] // NEW
-  advances  CaseAdvance[] // NEW
-  timeEntries TimeEntry[]
-  documents Document[]
-  
-  @@index([orgId])
+  @@index([orgId, status])
   @@index([clientId])
-  @@index([status])
-  @@index([caseNo])
 }
 
-// NEW: Dava masrafları
-model CaseExpense {
-  id          Int         @id @default(autoincrement())
-  caseId      Int
-  type        ExpenseType
-  amount      Decimal
-  currency    String      @default("TRY")
-  description String?
-  date        DateTime
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+model Template {
+  id        Int      @id @default(autoincrement())
+  orgId     Int
+  name      String
+  fields    Json
+  bodyMd    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
   
-  case Case @relation(fields: [caseId], references: [id])
-  
-  @@index([caseId])
+  org Organization @relation(fields: [orgId], references: [id])
 }
 
-// NEW: Dava avansları
-model CaseAdvance {
-  id          Int      @id @default(autoincrement())
-  caseId      Int
-  amount      Decimal
-  currency    String   @default("TRY")
-  description String?
-  date        DateTime
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  
-  case Case @relation(fields: [caseId], references: [id])
-  
-  @@index([caseId])
-}
-
-model Event {
-  id              Int       @id @default(autoincrement())
-  orgId           Int
-  caseId          Int?
-  type            EventType
-  title           String
-  description     String?
-  startAt         DateTime
-  endAt           DateTime?
-  location        String?
-  reminders       Int[]     @default([]) // NEW: Hatırlatıcı dakikalar [15, 60, 1440]
-  reminder        Boolean   @default(false) // KEPT for compatibility
-  createdByUserId Int
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  
-  org       Organization @relation(fields: [orgId], references: [id])
-  case      Case?        @relation(fields: [caseId], references: [id])
-  createdBy User         @relation("EventCreatedBy", fields: [createdByUserId], references: [id])
-  
-  @@index([orgId])
-  @@index([startAt])
-  @@index([caseId])
-}
-
-model File {
-  id         Int      @id @default(autoincrement())
-  orgId      Int
-  caseId     Int?
-  name       String
-  key        String   @unique
-  mimeType   String
-  size       Int
-  uploadedBy Int
-  createdAt  DateTime @default(now())
-  
-  org        Organization @relation(fields: [orgId], references: [id])
-  case       Case?        @relation(fields: [caseId], references: [id])
-  uploader   User         @relation(fields: [uploadedBy], references: [id])
-  
-  @@index([orgId])
-  @@index([caseId])
-}
-
-// NEW: Document model for better file management
 model Document {
   id         Int      @id @default(autoincrement())
   orgId      Int
   caseId     Int?
   clientId   Int?
-  key        String   @unique
+  key        String
   name       String
   mimeType   String
   size       Int
   uploadedBy Int
   createdAt  DateTime @default(now())
   
-  org        Organization @relation(fields: [orgId], references: [id])
-  case       Case?        @relation(fields: [caseId], references: [id])
-  client     Client?      @relation(fields: [clientId], references: [id])
+  org    Organization @relation(fields: [orgId], references: [id])
+  case   Case?        @relation(fields: [caseId], references: [id])
+  client Client?      @relation(fields: [clientId], references: [id])
   
   @@index([orgId])
   @@index([caseId])
   @@index([clientId])
 }
 
-// NEW: Template model for document templates
-model Template {
+model CaseFile {
   id        Int      @id @default(autoincrement())
-  orgId     Int
+  caseId    Int
   name      String
-  fields    Json     // Field definitions {name, type, required}
-  bodyMd    String   // Markdown body with {{field}} placeholders
+  path      String
+  mimeType  String
+  size      Int
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
   
-  org Organization @relation(fields: [orgId], references: [id])
-  
-  @@index([orgId])
+  case Case @relation(fields: [caseId], references: [id])
 }
 
-// NEW: Time tracking
 model TimeEntry {
-  id          Int      @id @default(autoincrement())
+  id          Int       @id @default(autoincrement())
   userId      Int
   caseId      Int
   startTime   DateTime
   endTime     DateTime?
-  duration    Int?     // Minutes
-  rate        Decimal?
-  currency    String   @default("TRY")
+  duration    Int?
+  rate        Decimal?  @db.Money
+  currency    String    @default("TRY")
   description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   
   user User @relation(fields: [userId], references: [id])
   case Case @relation(fields: [caseId], references: [id])
@@ -305,102 +239,46 @@ model TimeEntry {
   @@index([caseId])
 }
 
-model Invoice {
-  id            Int           @id @default(autoincrement())
-  orgId         Int
-  clientId      Int
-  invoiceNo     String
-  date          DateTime
-  dueDate       DateTime?
-  amount        Decimal
-  tax           Decimal?
-  totalAmount   Decimal       // RENAMED from 'total' for clarity
-  status        InvoiceStatus @default(draft)
-  notes         String?
-  items         Json?         // NEW: Invoice line items
-  paidAt        DateTime?     // NEW: Payment date
-  createdBy     Int
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
+model Expense {
+  id          Int      @id @default(autoincrement())
+  caseId      Int
+  type        String
+  description String?
+  amount      Decimal  @db.Money
+  currency    String   @default("TRY")
+  date        DateTime
+  createdAt   DateTime @default(now())
   
-  org        Organization  @relation(fields: [orgId], references: [id])
-  client     Client        @relation(fields: [clientId], references: [id])
-  creator    User          @relation(fields: [createdBy], references: [id])
-  
-  @@index([orgId])
-  @@index([status])
-  @@unique([orgId, invoiceNo])
+  case Case @relation(fields: [caseId], references: [id])
 }
 
-model Session {
+model Advance {
   id        Int      @id @default(autoincrement())
-  userId    Int
-  tokenHash String   @unique
-  expiresAt DateTime
+  caseId    Int
+  amount    Decimal  @db.Money
+  currency  String   @default("TRY")
+  date      DateTime
+  notes     String?
   createdAt DateTime @default(now())
   
-  user User @relation(fields: [userId], references: [id])
-  
-  @@index([expiresAt])
+  case Case @relation(fields: [caseId], references: [id])
 }
 
 model AuditLog {
   id         Int      @id @default(autoincrement())
-  orgId      Int?
+  orgId      Int
   userId     Int?
   action     String
-  entityType String   // RENAMED from 'resource' for consistency
-  entityId   String?  // RENAMED from 'resourceId' for consistency
+  entityType String
+  entityId   String?
+  meta       Json?
   ip         String?
   ua         String?
-  meta       Json?
   createdAt  DateTime @default(now())
   
-  user User?         @relation(fields: [userId], references: [id])
-  org  Organization? @relation(fields: [orgId], references: [id])
+  org  Organization @relation(fields: [orgId], references: [id])
+  user User?        @relation(fields: [userId], references: [id])
   
   @@index([orgId, createdAt])
-  @@index([userId, createdAt])
-}
-
-model Invite {
-  id              Int       @id @default(autoincrement())
-  orgId           Int
-  email           String
-  role            Role      @default(lawyer)
-  tokenHash       String    @unique
-  invitedByUserId Int
-  expiresAt       DateTime
-  acceptedAt      DateTime?
-  createdAt       DateTime  @default(now())
-  
-  org       Organization @relation(fields: [orgId], references: [id])
-  invitedBy User         @relation("InvitedBy", fields: [invitedByUserId], references: [id])
-  
-  @@index([orgId, email])
-  @@index([tokenHash])
-}
-
-model EmailVerificationToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  
-  user User @relation(fields: [userId], references: [id])
-  
-  @@index([tokenHash])
-}
-
-model PasswordResetToken {
-  id        Int      @id @default(autoincrement())
-  userId    Int
-  tokenHash String   @unique
-  expiresAt DateTime
-  createdAt DateTime @default(now())
-  
-  user User @relation(fields: [userId], references: [id])
-  
-  @@index([tokenHash])
+  @@index([userId])
 }
