@@ -8,18 +8,10 @@ import { PrismaClient } from '@prisma/client';
 // Load environment variables
 dotenv.config();
 
-// Import routes
+// Import working routes only
 import authRoutes from './routes/auth';
 import apiRoutes from './routes/api';
 import dashboardRoutes from './routes/dashboard';
-import clientRoutes from './routes/clients';
-import caseRoutes from './routes/cases';
-import eventRoutes from './routes/events';
-import invoiceRoutes from './routes/invoices';
-import documentRoutes from './routes/documents';
-import billingRoutes from './routes/billing';
-import reportRoutes from './routes/reports';
-import auditRoutes from './routes/audit';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -33,13 +25,12 @@ const corsOptions = {
       'http://localhost:3001'
     ];
     
-    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
     } else {
-      callback(null, true); // Allow all origins in development
+      callback(null, true); // Allow all in dev
     }
   },
   credentials: true,
@@ -57,7 +48,6 @@ app.use(morgan('combined'));
 // Health check endpoint
 app.get('/health', async (req, res) => {
   try {
-    // Test database connection
     await prisma.$queryRaw`SELECT 1`;
     
     res.json({
@@ -79,20 +69,10 @@ app.get('/health', async (req, res) => {
   }
 });
 
-// Routes - Auth and API routes first (new real implementation)
+// Routes
 app.use('/', authRoutes);
 app.use('/', apiRoutes);
-
-// Legacy routes (keep for backwards compatibility)
 app.use('/api', dashboardRoutes);
-app.use('/api', clientRoutes);
-app.use('/api', caseRoutes);
-app.use('/api', eventRoutes);
-app.use('/api', invoiceRoutes);
-app.use('/', documentRoutes);
-app.use('/', billingRoutes);
-app.use('/', reportRoutes);
-app.use('/', auditRoutes);
 
 // Root endpoint
 app.get('/', (req, res) => {
