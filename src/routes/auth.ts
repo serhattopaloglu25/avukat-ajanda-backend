@@ -22,6 +22,8 @@ const loginSchema = z.object({
 // Register endpoint
 router.post('/auth/register', async (req, res) => {
   try {
+    console.log('Register request:', req.body);
+    
     const validatedData = registerSchema.parse(req.body);
     
     // Check if user exists
@@ -36,12 +38,11 @@ router.post('/auth/register', async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(validatedData.password, 10);
 
-    // Create user
+    // Create user - SADECE passwordHash kullan
     const user = await prisma.user.create({
       data: {
         email: validatedData.email,
-        password: passwordHash,
-        passwordHash: passwordHash, // Both fields for compatibility
+        passwordHash: passwordHash,  // Sadece passwordHash
         name: validatedData.name
       },
       select: {
@@ -51,6 +52,7 @@ router.post('/auth/register', async (req, res) => {
         createdAt: true
       }
     });
+    console.log('User created:', user);
 
     // Generate JWT
     const token = jwt.sign(
@@ -63,14 +65,16 @@ router.post('/auth/register', async (req, res) => {
       token,
       user
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Register error:', error);
+    
     if (error instanceof z.ZodError) {
       return res.status(400).json({ 
         error: 'Geçersiz veri',
         details: error.errors 
       });
     }
-    console.error('Register error:', error);
+    
     res.status(500).json({ error: 'Kayıt oluşturulamadı' });
   }
 });
@@ -89,10 +93,10 @@ router.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Geçersiz email veya şifre' });
     }
 
-    // Verify password - try both fields for compatibility
+    // Verify password - sadece passwordHash kullan
     const validPassword = await bcrypt.compare(
       validatedData.password, 
-      user.passwordHash || user.password
+      user.passwordHash
     );
     
     if (!validPassword) {
@@ -115,14 +119,16 @@ router.post('/auth/login', async (req, res) => {
         createdAt: user.createdAt
       }
     });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Login error:', error);
+    
     if (error instanceof z.ZodError) {
       return res.status(400).json({ 
         error: 'Geçersiz veri',
         details: error.errors 
       });
     }
-    console.error('Login error:', error);
+    
     res.status(500).json({ error: 'Giriş yapılamadı' });
   }
 });
